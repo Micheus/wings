@@ -1,5 +1,5 @@
 %%
-%%  wpc_bump_surface.erl --
+%%  wpc_heightmap_surface.erl --
 %%
 %%     A surface creator by using a heiht map.
 %%
@@ -11,7 +11,7 @@
 %%     $Id$
 %%
 
--module(wpc_bump_surface).
+-module(wpc_heightmap_surface).
 
 -define(NEED_OPENGL, 1).
 
@@ -22,34 +22,36 @@
 
 init() -> true.
 
+menu({shape}, Menu) ->
+    Menu ++ [{?__(1,"Heightmap Surface..."),heightmap_surface_editor,
+	      	  ?__(2,"L: Create Open the heightmap surface editor window for creation of a surface object")}];
+menu(_,Menu) -> 
+	Menu.
 
-menu({tools}, Menu) ->
-    Menu ++ [separator,
-	     {?__(1,"Bump Surface Editor Window"),bump_surface_editor_window,
-	      ?__(2,"Open the bump surface editor window for creation of a surface object")}];
-menu(_Dbg, Menu) ->
-    Menu.
-
-command({tools,bump_surface_editor_window}, St) ->
-	start_bump_editor(St);
+command({shape,heightmap_surface_editor}, St) ->
+	start_heightmap_editor(St);
 command({Name}, St) ->
-	load_bump_image(Name, St);
+	load_heightmap_image(Name, St);
 command(_, _) -> 
     next.
 
 build_shape(Prefix, Fs, Vs, #st{onext=Oid}=St) ->
-    We = wings_we:build(Fs, Vs),
+%build_shape(Prefix, Fs, Vs, Vc, He, #st{onext=Oid}=St) ->
+%	Mesh=#e3d_mesh{type=polygon,vs=Vs,vc=Vc,tx=[],ns=[],fs=Fs,he=He},
+%	We = wings_we:build(body, Mesh),
+	We = wings_we:build(Fs,Vs),
+%	wings_we:invert_normals(We),
     Name = Prefix++integer_to_list(Oid),
     wings_shape:new(Name, We, St).
     
-start_bump_editor(St) ->
-	load_bump_image().
+start_heightmap_editor(St) ->
+	load_heightmap_image().
 
-load_bump_image() ->
+load_heightmap_image() ->
     Ps = [{extensions,wpa:image_formats()}],
     wpa:import_filename(Ps, fun(N) -> {N} end).
 
-load_bump_image(Name, St) ->
+load_heightmap_image(Name, St) ->
     Ps = [{filename,Name}],
     case wpa:image_read(Ps) of
 	{error,Error} ->
@@ -64,65 +66,83 @@ load_bump_image(Name, St) ->
 			process_surface(Image0, St)
 		end
     end.
-    
-process_surface_1(#e3d_image{width=W,height=H,bytes_pp=Bpp,image=Pixels}, St) ->
-    io:format("Bump surfice using fixed value~n", []),
- 	Vs=[{-0.5,1.0,0.5},{-0.5,1.0,-0.5},{0.5,1.0,0.5},{0.5,1.0,-0.5},{-0.5,-0.5,0.5},{-0.5,-0.5,-0.5},{0.5,-0.5,0.5},{0.5,-0.5,-0.5}],
- 	Fs=[[4,6,2,0],[2,3,7,6],[4,5,7,6],[0,2,3,1],[5,1,3, 7],[4,0,1,5]],
-% 	Vs=[{-0.5,-0.5,0.5},{-0.5,1.0,0.5},{0.5,1.0,0.5},{0.5,-0.5,0.5},{-0.5,-0.5,-0.5},{-0.5,1.0,-0.5},{0.5,1.0,-0.5},{0.5,-0.5,-0.5}],
-% 	Fs=[[0,3,2,1],[2,3,7,6],[0,4,7,3],[1,2,6,5],[4,5,6,7],[0,1,5,4]],
-    io:format(" Elements of the Vs list: ~w~n", [Vs]),
-    io:format(" Elements of the Fs list: ~w~n", [Fs]),
-    io:format("Calling build_shape~n=========================~n", []),
-
- 	build_shape("bump_surface",Fs,Vs,St).
-
+  
 process_surface(#e3d_image{width=W,height=H,bytes_pp=Bpp,image=Pixels}, St) ->
-    io:format("Image size: ~px~p  Bpp: ~w~n", [W,H,Bpp]),
-    Bpp0=Bpp-1,
-	Vs1 = << << R:1/binary >> || << R:1/binary,_:Bpp0/binary >> <= Pixels >>,
+%    io:format("Image size: ~px~p  Bpp: ~w~n", [W,H,Bpp]),
+%   Bpp0=Bpp-1,
+%	Vs1 = << << R:1/binary >> || << R:1/binary,_:Bpp0/binary >> <= Pixels >>,
+	Vs1=list_to_binary(pixel_to_height(Pixels, Bpp)),
+	
 %	{MinY,MaxY}=bin_range(Vs1),
-%    io:format("Heigh value extracted from binary data: ~p~n=========================~n", [Vs1]),
-    Dx=(W-1)/2.0,
-    Dz=(H-1)/2.0,
-    %{Dx,-0.5,Dz},{-Dx,-0.5,Dz},{-Dx,-0.5,-Dz},{Dx,-0.5,-Dz}
-	Vs0 = [gen_vertex(W,H,Vs1,X,Z) || 
-    		X <- lists:seq(0,W-1), 
-    		Z <- lists:seq(0,H-1)],
-    VsBot = [{X,-0.1,-Z} || X <- [-Dx,Dx], Z <- [-Dz,Dz]],
-    Vs = lists:append(Vs0,VsBot),
-%    io:format("VERTEX LIST~n Quantity of elements of the list Vs: ~w~n", [length(Vs)]),
-%    io:format(" Elements of the Vs list: ~w~n", [Vs]),
+    Factors=get_factor(H,W,16,8),
+    Offset={(H-1)/2.0,(W-1)/2.0},
 
-    Fs0 = [gen_face(W,H,X,Z) || 
-    		X <- lists:seq(0,W-2), 
-    		Z <- lists:seq(0,H-2)],
-%    io:format(" Elements of the Fs0 list: ~w~n", [Fs0]),
+%%  Top vertex calculated from image dimensions(W,H => Z,X) and color (Y)
+	Vs0 = [gen_vertex(W,Offset,Factors,Vs1,X,Z) || 
+    		X <- lists:seq(0,H-1), 
+    		Z <- lists:seq(0,W-1)],
+%%  Bottom vertex
+    VsBot = [{X,-0.1,Z} || {X,_,Z} <- Vs0],
+%%  All vertex to build surface
+    Vs = lists:append(Vs0,VsBot),
+
     VsDx=W*H,
-%    Fs1 = [[VsDx,VsDx+2,VsDx+3,VsDx+1]|Fs0],
-    Fs1 = [[VsDx,VsDx+1,VsDx+3,VsDx+2]],
-%    io:format(" Elements of the Fs1 list: ~w~n", [Fs1]),
-    Fs2 = [lists:append([VsDx+1,VsDx],[I|| I<-lists:seq(0,H-1)])],  %North
-%    io:format(" Elements of the Fs2 list: ~w~n", [Fs2]),
-    Fs3 = [lists:append([VsDx+2,VsDx+3],[H*W-1-I|| I<-lists:seq(0,H-1)])],  %South
-%    io:format(" Elements of the Fs3 list: ~w~n", [Fs3]),
-    Fs4 = [lists:append([VsDx,VsDx+2],[(W-1)*H-I|| I<-lists:seq(0,(W-1)*H,H)])],  %Est
-%    io:format(" Elements of the Fs4 list: ~w~n", [Fs4]),
-    Fs5 = [lists:append([VsDx+3,VsDx+1],[I+H-1|| I<-lists:seq(0,(W-1)*H,H)])],  %West
-%    io:format(" Elements of the Fs5 list: ~w~n", [Fs5]),
+    Fs0 = [gen_face(W,X,Z,0) || 
+    		Z <- lists:seq(0,W-2), 
+    		X <- lists:seq(0,H-2)],
+    Fs1 = [gen_face(W,X,Z,VsDx) || 
+    		Z <- lists:seq(0,W-2), 
+    		X <- lists:seq(0,H-2)],
+    Fs2 = [[I,I+1,VsDx+I+1,VsDx+I] || I<-lists:seq(0,W-2)],         %North
+    Fs3 = [[VsDx-W+I,2*VsDx-W+I,2*VsDx-W+I+1,VsDx-W+I+1] || I<-lists:seq(0,W-2)],  %South
+    Fs4 = [[I+W,VsDx+I+W,VsDx+I,I]|| I<-lists:seq(W-1,(H-1)*W,W)],  %Est
+    Fs5 = [[I,VsDx+I,VsDx+I+W,I+W]|| I<-lists:seq(0,(H-2)*W,W)],    %West
     Fsa=lists:append(Fs0,Fs1),
     Fsb=lists:append(Fs2,Fs3),
     Fsc=lists:append(Fs4,Fs5),
     Fsd=lists:append(Fsa,Fsb),
     Fs=lists:append(Fsc,Fsd),
-%    io:format("FACE LIST~n Quantity of elements of the list Fs: ~w~n", [length(Fs)]),
-%    io:format(" Elements of the Fs list: ~w~n", [Fs]),
-%    io:format("~nSt: ~p~n~n", [St]),
+	Vc=[],
+	He=[],
+ 	build_shape("heightmap_surface",Fs,Vs,St).
+% 	build_shape("heightmap_surface",Fs,Vs,Vc,He,St).
 
- 	build_shape("bump_surface",Fs,Vs,St).
+ratio(D, D) -> {1.0,1.0};
+ratio(W, H) when W < H -> {1.0,H/W};
+ratio(W, H) -> {W/H,1.0}.
+	
+get_factor(W0,H0,Max,FctY) ->
+	{Rw,Rh}=ratio(W0,H0),
+	{Max/W0*Rw,FctY,Max/H0*Rh}.
+	
+pixel_to_height(Pixel,Bpp) ->
+	case Pixel of
+	<<>> ->
+		[];
+	_ ->
+		case Bpp > 2 of
+		true ->
+			Bpp0=Bpp-3,
+			<<R0:1/binary,G0:1/binary,B0:1/binary,_:Bpp0/binary,T/binary>>=Pixel,
+			[R]=binary_to_list(R0),
+			[G]=binary_to_list(G0),
+			[B]=binary_to_list(B0),
+			[[rgb_to_mono(R,G,B)]|pixel_to_height(T,Bpp)];
+		false ->
+			Bpp0=Bpp-1,
+			<<R0:1/binary,_:Bpp0/binary,T/binary>>=Pixel,
+			[R]=binary_to_list(R0),
+			[[R]|pixel_to_height(T,Bpp)]
+		end
+	end.
 
-gen_vertex(MaxX,MaxZ,Ybin,X,Z) ->
-	Idx=MaxX*Z+X,
+rgb_to_mono(R,G,B) when R==G;G==B->
+	R;
+rgb_to_mono(R,G,B) -> 
+	trunc(170*R/255 + 85*G/255 + B/255).
+
+gen_vertex(MaxZ,Offset,Factor,Ybin,X,Z) ->
+	Idx=MaxZ*X+Z,
 	case Idx==0 of 
 	true ->
 		<<Y0:1/binary,_/binary>>=Ybin;
@@ -130,18 +150,20 @@ gen_vertex(MaxX,MaxZ,Ybin,X,Z) ->
 		<<_:Idx/binary,Y0:1/binary,_/binary>>=Ybin
 	end,
 	[Y]=binary_to_list(Y0),
-	Dx=(MaxX-1)/2.0,
-	Dz=(MaxZ-1)/2.0,
-	{X-Dx,(Y/255)*10.0,-Z+Dz}.
-%	{X-Dx,1.0,-Z+Dz}.
+	gen_vertex(Offset,Factor,X,Y,Z).
+	
+gen_vertex({Dx,Dz},{FctX, FctY, FctZ},X,Y,Z) ->
+	{FctX*(X-Dx),FctY*(Y/255),FctZ*(-Z+Dz)}.
     
-gen_face(MaxX,MaxZ,X,Z) ->
-% io:format("MaxX: ~w  MaxZ: ~w  || X: ~w Z: ~w~n", [MaxX,MaxZ,X,Z]),
-	V0=(X*MaxZ)+Z,
+gen_face(MaxZ,X,Z,Offset) ->
+	V0=(X*MaxZ)+Z+Offset,
 	V1=V0+MaxZ,
 	V2=V1+1,
 	V3=V0+1,
-  [V0,V1,V2,V3].
+	case Offset > 0 of
+	true -> [V0,V3,V2,V1];
+	false -> [V0,V1,V2,V3] 
+	end.
 
 create_window() ->
 	ok.
