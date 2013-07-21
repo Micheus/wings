@@ -12,7 +12,7 @@
 #
 
 .SUFFIXES: .erl .jam .beam .yrl .xrl .bin .mib .hrl .sgml .html .ps .3 .1 \
-	.fig .dvi .tex .class .java .pdf .psframe .pscrop
+    .fig .dvi .tex .class .java .pdf .psframe .pscrop
 
 ESRC=.
 WINGS_INTL=../../intl_tools
@@ -28,16 +28,17 @@ TYPE_FLAGS=
 endif
 
 MODULES= \
-	wpc_bbox \
-	wpc_cylinder \
-	wpc_geodome \
-	wpc_image \
-	wpc_knot \
-	wpc_ncube \
-	wpc_plane \
-	wpc_spiral \
-	wpc_torus \
-	wpc_tt
+    wpc_bbox \
+    wpc_cylinder \
+    wpc_geodome \
+    wpc_image \
+    wpc_knot \
+    wpc_ncube \
+    wpc_plane \
+    wpc_spiral \
+    wpc_torus \
+    wpc_heightmap_surface \
+    wpc_tt
 
 TARGET_FILES= $(MODULES:%=$(EBIN)/%.beam)
 
@@ -52,22 +53,22 @@ ERL_COMPILE_FLAGS += -Werror -I $(WINGS_SRC) -I $(WINGS_E3D) \
 # ----------------------------------------------------
 
 opt debug:
-	$(MAKE) TYPE=$@ common
+    $(MAKE) TYPE=$@ common
 
 template: opt
-	erl -pa $(WINGS_INTL) -noinput -run tools generate_template_files $(EBIN)
+    erl -pa $(WINGS_INTL) -noinput -run tools generate_template_files $(EBIN)
 
 lang: template
-	cp *.lang $(EBIN)
-	erl -pa $(WINGS_INTL) -noinput -run tools diff_lang_files $(EBIN)
+    cp *.lang $(EBIN)
+    erl -pa $(WINGS_INTL) -noinput -run tools diff_lang_files $(EBIN)
 
 common: $(TARGET_FILES)
 
 clean:
-	rm -f $(TARGET_FILES)
-	rm -f core
+    rm -f $(TARGET_FILES)
+    rm -f core
 
 $(EBIN)/%.beam: $(ESRC)/%.erl
-	$(ERLC) $(ERL_COMPILE_FLAGS) -o$(EBIN) $<
+    $(ERLC) $(ERL_COMPILE_FLAGS) -o$(EBIN) $<
 
 $(EBIN)/wpc_image.beam $(EBIN)/wpc_tt.beam: $(WINGS_E3D)/e3d.hrl
