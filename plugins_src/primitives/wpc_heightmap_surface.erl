@@ -219,6 +219,8 @@ heightmap_dialog([init]) ->
     Density=init_density(W0,H0),
     Arg=[
     {prw,PreviewInfo},
+    {mode,mesh}, % heightmap mode: mesh;block;
+    {nb,false},
     {ar,true},
     {ws,10.0},
     {hs,H0*get_factor(W0,H0,10.0)},
@@ -248,6 +250,8 @@ heightmap_dialog([init]) ->
 heightmap_dialog(Arg) ->
     ArgDict = dict:from_list(Arg),
     PreviewInfo = dict:fetch(prw,ArgDict),
+    Mode = dict:fetch(mode,ArgDict),
+    Nb = dict:fetch(nb,ArgDict),
     Ar = dict:fetch(ar,ArgDict),
     Ws = dict:fetch(ws,ArgDict),
     Hs = dict:fetch(hs,ArgDict),
@@ -295,6 +299,15 @@ heightmap_dialog(Arg) ->
            ]}],
            [
               {title,?__(13,"Image Info")} ]},
+        {vframe,[
+           {hframe,[
+               {hradio, [{?__(31,"Mesh")++"  ",mesh},{?__(32,"Blocks")++"   ", block}], Mode, [{key, mode}, {hook,fun dlg_default_hook/2}]},
+               {?__(33,"Build null block"),Nb,[{key,nb}]}
+%               {?__(33,"Build null block"),Nb,[{key,nb},{hook,dlg_disable_hook(mode)}]}
+               ]
+           }],
+        [
+           {title,?__(34,"Contruction method")} ]},
         {vframe,[
            {hframe,[
                {?__(5,"Keep aspect ratio"),Ar,[{hook,fun dlg_default_hook/2},{key,ar}]} ]
@@ -428,6 +441,17 @@ dlg_default_hook(Event, Params) ->
     _ ->
         void
     end.
+
+%dlg_disable_hook(V) ->
+%    fun (is_disabled, {_Var,_I,Store}) ->
+%          case V of
+%              mode -> gb_trees:get(mode, Store)=/=block;
+%              _ ->
+%                  false
+%          end;
+%      (_, _) ->
+%          void
+%    end.
 
 dlg_disable_hook(V,Inverse) ->
     fun (is_disabled, {_Var,_I,Store}) ->
@@ -886,8 +910,8 @@ check_is_grayscale(#e3d_image{width=W,height=H,bytes_pp=Bpp,image=Pixels}=Image)
 %% it creates a very small cube that will carry "pst" information
 make_preview() ->
     VL=[{1.0,1.0,1.0} || _ <- lists:seq(1,2), _ <- lists:seq(1,2)],
-    {VsTop,VsBot}=create_normalized_vertices(1,1,0.0,1.0,false,false,false,VL),
-    Nv0=[scale_vertices(Vertice,0.0001,0.0001,0.0001,false) || Vertice <- VsTop++VsBot],
+    {VsTop,VsBot}=create_normalized_vertices(mesh,2,2,0.0,1.0,false,false,false,VL),
+    Nv0=[scale_vertices(Vertice,0.00005,0.00005,0.0001,false) || Vertice <- VsTop++VsBot],
     {Fs,_}=create_faces(2,2,false,false),
     {Nv0,Fs}.
 
@@ -932,6 +956,9 @@ process_density(Arg) ->
 %%  process_surface/1 computes the data for preview
 process_surface(Arg) ->
     ArgDict = dict:from_list(Arg),
+    ?SLOW(process_surface(dict:fetch(mode,ArgDict),Arg)).
+process_surface(mesh, Arg) ->
+    ArgDict = dict:from_list(Arg),
     Wm = dict:fetch(ws,ArgDict),
     Hm = dict:fetch(hs,ArgDict),
     Em = dict:fetch(es,ArgDict),
@@ -943,31 +970,66 @@ process_surface(Arg) ->
     SideFace = dict:fetch(sf,ArgDict),
     HardEdges = dict:fetch(he,ArgDict),
 
+    wings_wm:message(?__(1,"Computing mesh... (this can take a few minutes)")),
     {W,H,Els}=wings_pref:get_value(heightmap_elevation),
-    {VsTop,VsBot}=create_normalized_vertices(W,H,CLo/100.0,CHi/100.0,GroundValue,BottomFace,SideFace,Els),
+    {VsTop,VsBot}=create_normalized_vertices(mesh,W,H,CLo/100.0,CHi/100.0,GroundValue,BottomFace,SideFace,Els),
     Vs=[scale_vertices(Vertice,Wm,Em,Hm,VertexColor) || Vertice <- VsTop++VsBot],
     {Fs,He0}=create_faces(W,H,BottomFace,SideFace),
     He=if HardEdges=:=true -> He0;
         true -> []
     end,
-    {Vs,Fs,He,VertexColor}.
+    {Vs,Fs,He,VertexColor};
+process_surface(block, Arg) ->
+    ArgDict = dict:from_list(Arg),
+    Wm = dict:fetch(ws,ArgDict),
+    Hm = dict:fetch(hs,ArgDict),
+    Em = dict:fetch(es,ArgDict),
+    Nb = dict:fetch(nb,ArgDict),
+    CLo = dict:fetch(tcut_lo,ArgDict),
+    CHi = dict:fetch(tcut_hi,ArgDict),
+    GroundValue = dict:fetch(gv,ArgDict),
+    VertexColor = dict:fetch(vc,ArgDict),
 
+    wings_wm:message(?__(2,"Computing blocks... (this can take a several minutes)")),
+    {W,H,Els}=wings_pref:get_value(heightmap_elevation),
+    Bw=(Wm/W)/2,
+    Bh=(Hm/H)/2,
+    {VsTop1,_}=create_normalized_vertices(block,W,H,CLo/100.0,CHi/100.0,GroundValue,false,false,Els),
+    if Nb=/=true ->
+        VsTop=[scale_vertices(V,Wm,Em,Hm,VertexColor) || {_,Y,_}=V <- VsTop1, Y > 0.0],
+        {_,Blks}=lists:foldr(fun(Vi, {Idx, BlAcc0}) ->
+            case Vi of
+                {_, Y0, _} -> Y=Y0;
+                {{_, Y0, _},_} -> Y=Y0
+            end,
+            if (Y > 0.0) -> {Idx+1,BlAcc0++[Idx]};
+              true -> {Idx,BlAcc0}
+            end
+        end, {0,[]},VsTop),
+        Fs=create_blocks(Blks);
+      true ->
+        VsTop=[scale_vertices(V,Wm,Em,Hm,VertexColor) || V <- VsTop1],
+        Fs=create_blocks(W,H)
+    end,
+    VsBlks=[block_vertices(V,Bw,Bh) || V <- VsTop],
+    {lists:flatten(VsBlks),Fs,[],VertexColor};
 %%  process_surface/2 computes the data for build the final mesh
 process_surface(Arg, St) ->
     Params=process_surface(Arg),
     create_surface(Params,Arg,St).
-
 %%  process_surface/3 computes the data for build the final mesh by using pre-calculated data (optimization)
 process_surface(Params, Arg, St) ->
-    ArgDict = dict:from_list(Arg),
-    W = dict:fetch(iw,ArgDict),
-    H = dict:fetch(ih,ArgDict),
-    Tx = dict:fetch(mt,ArgDict),
-    TxSize = dict:fetch(texsz,ArgDict),
+    ArgDict=dict:from_list(Arg),
+    Mode=dict:fetch(mode,ArgDict),
+    W=dict:fetch(iw,ArgDict),
+    H=dict:fetch(ih,ArgDict),
+    Tx=dict:fetch(mt,ArgDict),
+    TxSize=dict:fetch(texsz,ArgDict),
+
     {Vs,Fs,He,Col}=Params,
     Op=case Col of
     true ->
-        if Tx=:=true -> {uv,TxSize};
+        if (Mode=:=mesh)and(Tx=:=true) -> {uv,TxSize};
           true -> Col
         end;
     _ -> Col
@@ -1131,35 +1193,38 @@ create_material() ->
 %%%
 %%% Computing the normalized data for each vertice that defines the object
 %%%
-create_normalized_vertices(W,H,CLo,CHi,GroundValue,BottomFace,SideFace,Els) ->
-    Dx=(W-1)/2.0,
-    Dz=(H-1)/2.0,
-    if GroundValue=:=true ->
-        Dy=CLo;
-    true ->
-        Dy=0.0
+create_normalized_vertices(Mode,W,H,CLo,CHi,GroundValue,BottomFace,SideFace,Els) ->
+    W0=(W-1),
+    H0=(H-1),
+	Dx=W0/2.0,
+	Dz=H0/2.0,
+    if GroundValue=:=true -> Dy=CLo;
+      true -> Dy=0.0
     end,
-
     %  Computing the normalized heigth for each vertice that defines the grid
     ?SLOW(VeticeList=gen_vertices(W,H,0,CLo,CHi,Els)),
     %  Normalizing the X and Z coordenates that defines the grid
-    VsTop=[{(X-Dx)/W,Y-Dy,(Z-Dz)/H} || {X,Y,Z} <- VeticeList],
-
+    VsTop=case Mode of
+        mesh -> 
+            [{(X-Dx)/W0,Y-Dy,(Z-Dz)/H0} || {X,Y,Z} <- VeticeList];
+        _ ->
+            [{(X-Dx)/W,Y-Dy,(Z-Dz)/H} || {X,Y,Z} <- VeticeList]
+    end,
     %  Computing the vertices for the Bottom
     if BottomFace=:=true ->
         VsBot = [{X,?BOTTOM_Y,Z} || {X,_,Z} <- VsTop];
     true ->
         if SideFace=:=true ->
-            VNd = [{(X-Dx)/W,?BOTTOM_Y,(0.0-Dz)/H}		|| X <-lists:seq(0,W-1)],
-            VEd = [{(W-1-Dx)/W,?BOTTOM_Y,(Z-Dz)/H}		|| Z <-lists:seq(1,H-2)],
-            VSd = [{(W-X-Dx)/W,?BOTTOM_Y,(0.0+Dz)/H}	|| X <-lists:seq(1,W)],
-            VWd = [{(0.0-Dx)/W,?BOTTOM_Y,(H-1-Z -Dz)/H}	|| Z <-lists:seq(1,H-2)],
+            VNd = [{(X-Dx)/W0,?BOTTOM_Y,(0.0-Dz)/H0}		|| X <-lists:seq(0,W-1)],
+            VEd = [{(W-1-Dx)/W0,?BOTTOM_Y,(Z-Dz)/H0}		|| Z <-lists:seq(1,H-2)],
+            VSd = [{(W-X-Dx)/W0,?BOTTOM_Y,(0.0+Dz)/H0}	|| X <-lists:seq(1,W)],
+            VWd = [{(0.0-Dx)/W0,?BOTTOM_Y,(H-1-Z -Dz)/H0}	|| Z <-lists:seq(1,H-2)],
             VB1 = lists:append(VNd,VEd),
             VB2 = lists:append(VSd,VWd),
             VsBot = lists:append(VB1,VB2);
         true ->
-            VNd = [{-Dx/W,?BOTTOM_Y,-Dz/H},{+Dx/W,?BOTTOM_Y,-Dz/H}],
-            VSd = [{+Dx/W,?BOTTOM_Y,+Dz/H}, {-Dx/W,?BOTTOM_Y,+Dz/H}],
+            VNd = [{-Dx/W0,?BOTTOM_Y,-Dz/H0},{+Dx/W0,?BOTTOM_Y,-Dz/H0}],
+            VSd = [{+Dx/W0,?BOTTOM_Y,+Dz/H0},{-Dx/W0,?BOTTOM_Y,+Dz/H0}],
             VsBot = lists:append(VNd,VSd)
         end
     end,
@@ -1292,7 +1357,37 @@ gen_vertices(W,H,Idx,CutLo,CutHi,[E|T]) ->
     true ->
         E
     end,
-    [{X,Y,Z}|gen_vertices(W,H,Idx+1,CutLo,CutHi,T)].
+    [{X*1.0,Y*1.0,Z*1.0}|gen_vertices(W,H,Idx+1,CutLo,CutHi,T)].
+
+%%%
+%%%  Computing the face indexes for object's faces
+%%%
+create_blocks(W,H) ->
+    create_blocks_0(W*H-1,block_vs_idx(),[]).
+create_blocks(Blks) ->
+    create_blocks_1(Blks,block_vs_idx(),[]).
+
+create_blocks_0(0, Blk0, Acc0) -> Blk0++Acc0;
+create_blocks_0(Idx0, Blk0, Acc0) ->
+    Blk=block_vs_idx(Idx0*8, Blk0),
+    create_blocks_0(Idx0-1,Blk0,Blk++Acc0).
+
+create_blocks_1([], _, Acc0) -> Acc0;
+create_blocks_1([Idx|Blks], Blk0, Acc0) ->
+    Blk=block_vs_idx(Idx*8, Blk0),
+    create_blocks_1(Blks, Blk0, Blk++Acc0).
+
+%% Computes the vertice's values for the top and bottom faces of the blocks 
+block_vertices({{Vx,Vy,Vz},Yn}, Wdx, Hdx) ->
+    Vs=[{{Vx-Wdx,Vy,Vz-Hdx},Yn}, {{Vx-Wdx,Vy,Vz+Hdx},Yn}, {{Vx+Wdx,Vy,Vz+Hdx},Yn}, {{Vx+Wdx,Vy,Vz-Hdx},Yn}],
+    Vs ++[{{Vx0,0.0,Vz0},Yn0} || {{Vx0,_,Vz0},Yn0} <- lists:reverse(Vs)];
+block_vertices({Vx,Vy,Vz}, Wdx, Hdx) ->
+    Vs=[{Vx-Wdx,Vy,Vz-Hdx}, {Vx-Wdx,Vy,Vz+Hdx}, {Vx+Wdx,Vy,Vz+Hdx}, {Vx+Wdx,Vy,Vz-Hdx}],
+    Vs ++[{Vx0,0.0,Vz0} || {Vx0,_,Vz0} <- lists:reverse(Vs)].
+
+block_vs_idx() -> [[0,1,2,3],[4,5,6,7],[0,7,6,1],[1,6,5,2],[2,5,4,3],[3,4,7,0]].
+block_vs_idx(Idx, Blk) ->
+    [[V0+Idx,V1+Idx,V2+Idx,V3+Idx] || [V0,V1,V2,V3] <- Blk].
 
 %% Computes the vertice's index that define the top and bottom faces
 %% Offset will be different of zero if faces are in bottom of surface
@@ -1636,6 +1731,10 @@ update_dlist({fs,{FsList,VsList,HeList,Colored}}, #dlo{plugins=Pdl}=D, _St) ->
     D#dlo{plugins=[{Key,{fs,[List0,List1,List2,Colored]}}|Pdl]}.
 
 pump_faces([],_) -> ok;
+pump_faces([[[_,_,_,_]|_]|_]=Fs,VsList) ->
+    lists:foreach(fun(F0) ->
+        pump_faces(F0,VsList)
+    end, Fs);
 pump_faces(Fs,VsList) ->
     ColRamp=wings_pref:get_value(heightmap_color_ramp),
     lists:foreach(
@@ -1657,6 +1756,10 @@ pump_faces(Fs,VsList) ->
       end, Fs).
 
 pump_edges([],_) -> ok;
+pump_edges([[[_,_,_,_]|_]|_]=Fs,VsList) ->
+    lists:foreach(fun(F0) ->
+        pump_edges(F0,VsList)
+    end, Fs);
 pump_edges(Fs,VsList) ->
     lists:foreach(
       fun(F) ->
@@ -1694,7 +1797,7 @@ pump_vertex([V|Vs],[Vc|Vsc]) ->
     pump_vertex(Vs,Vsc).
 
 % draw(plain/smooth=Flag, #dlo=D, body/face/edge/vertex=SelMode)
-draw(_, {fs,[List0,List1,List2,Colored]}, _, SelMode) ->
+draw(_, {fs,[LstFs,LstEs,LstHe,Colored]}, _, SelMode) ->
     gl:disable(?GL_CULL_FACE),
     gl:disable(?GL_POLYGON_SMOOTH),
 
@@ -1705,7 +1808,7 @@ draw(_, {fs,[List0,List1,List2,Colored]}, _, SelMode) ->
     gl:enable(?GL_POLYGON_OFFSET_FILL),
     wings_render:polygonOffset(2),
     gl:polygonMode(?GL_FRONT, ?GL_FILL),
-    wings_dl:call(List0),
+    wings_dl:call(LstFs),
     gl:disable(?GL_POLYGON_OFFSET_FILL),
     if Colored=:= false ->
         wings_render:disable_lighting();
@@ -1713,12 +1816,12 @@ draw(_, {fs,[List0,List1,List2,Colored]}, _, SelMode) ->
     end,
 
     gl:enable(?GL_POLYGON_OFFSET_LINE),
-    gl:color3fv(wings_pref:get_value(edge_color)),
     wings_render:polygonOffset(1),
+    gl:color3fv(wings_pref:get_value(edge_color)),
     gl:polygonMode(?GL_FRONT, ?GL_LINE),
-    wings_dl:call(List1),
+    wings_dl:call(LstEs),
     gl:disable(?GL_POLYGON_OFFSET_LINE),
-    draw_hard_edges(List2,SelMode);
+    draw_hard_edges(LstHe,SelMode);
 draw(_,_,_,_) ->
     ok.
 
@@ -1730,6 +1833,7 @@ draw_hard_edges(Hard, SelMode) ->
 
 hard_edge_width(edge) -> wings_pref:get_value(hard_edge_width);
 hard_edge_width(_) -> max(wings_pref:get_value(hard_edge_width) - 1, 1).
+
 
 % get_data/3 There are currently only two atoms/tags/flags that are looked for when wings
 % goes to get the stored data to draw stuff from plugins ('update_dlist' and 'save').
