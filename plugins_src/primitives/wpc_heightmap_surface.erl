@@ -1205,7 +1205,7 @@ create_normalized_vertices(Mode,W,H,CLo,CHi,GroundValue,BottomFace,SideFace,Els)
     ?SLOW(VeticeList=gen_vertices(W,H,0,CLo,CHi,Els)),
     %  Normalizing the X and Z coordenates that defines the grid
     VsTop=case Mode of
-        mesh -> 
+        mesh ->
             [{(X-Dx)/W0,Y-Dy,(Z-Dz)/H0} || {X,Y,Z} <- VeticeList];
         _ ->
             [{(X-Dx)/W,Y-Dy,(Z-Dz)/H} || {X,Y,Z} <- VeticeList]
@@ -1377,7 +1377,7 @@ create_blocks_1([Idx|Blks], Blk0, Acc0) ->
     Blk=block_vs_idx(Idx*8, Blk0),
     create_blocks_1(Blks, Blk0, Blk++Acc0).
 
-%% Computes the vertice's values for the top and bottom faces of the blocks 
+%% Computes the vertice's values for the top and bottom faces of the blocks
 block_vertices({{Vx,Vy,Vz},Yn}, Wdx, Hdx) ->
     Vs=[{{Vx-Wdx,Vy,Vz-Hdx},Yn}, {{Vx-Wdx,Vy,Vz+Hdx},Yn}, {{Vx+Wdx,Vy,Vz+Hdx},Yn}, {{Vx+Wdx,Vy,Vz-Hdx},Yn}],
     Vs ++[{{Vx0,0.0,Vz0},Yn0} || {{Vx0,_,Vz0},Yn0} <- lists:reverse(Vs)];
@@ -1519,13 +1519,13 @@ rgb_to_height(V,V,V) ->
 %% Hue value is used in order to remove Saturation or lighting from the image's color
 % |  R  |  G  |  B  |
 % +-----+-----+-----+
-% | 255 |  0  |     | Red  => Hue scale = 0° (the max height)
+% | 255 |  0  |     | Red  => Hue scale = 0Â° (the max height)
 % |  :  |  :  |     | yellow
 % |  0  | 255 |  0  | green
 % |     |  :  |  :  | cyan
 % |  0  |  0  | 255 | blue
 % |  :  |     |  :  | violet
-% | 254 |     |  0  | pink  => Hue scale = 359.999°  (the min height)
+% | 254 |     |  0  | pink  => Hue scale = 359.999Â°  (the min height)
 % +-----+-----+-----+
 % After get the HUE value, it should be inverted
 rgb_to_height(R,G,B) ->
