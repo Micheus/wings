@@ -54,117 +54,244 @@ lathe_dialog() ->
 	y, [{key,axis},{title,?__(5,"Reference axis")}]},
      wings_shapes:transform_obj_dlg()].
 
-make_lathe(Arg, St) when is_atom(Arg) ->
+make_lathe(Arg, #st{selmode=face, sel=[{_,_}]}=St) when is_atom(Arg) ->
     Qs = lathe_dialog(),
     Label = ?__(1,"Lathe Options"),
     wings_dialog:dialog_preview({face,lathe}, Arg, Label, Qs, St);
-make_lathe(Arg, St) ->
+make_lathe(Arg, #st{selmode=face, sel=[{Id,Faces}], shapes=Shps0}=St) ->
     ArgDict = dict:from_list(Arg),
     Degrees = dict:fetch(degrees, ArgDict),
     Sections = dict:fetch(sections, ArgDict),
     Axis = dict:fetch(axis, ArgDict),
-    Flatten = dict:fetch(flatten, ArgDict),
+%    Flatten = dict:fetch(flatten, ArgDict),
     Modify = [{dict:fetch(rot_x, ArgDict), dict:fetch(rot_y, ArgDict), dict:fetch(rot_z, ArgDict)},
 	      {dict:fetch(mov_x, ArgDict), dict:fetch(mov_y, ArgDict), dict:fetch(mov_z, ArgDict)},
 	      dict:fetch(ground, ArgDict)],
-    Shape =
-	wings_sel:fold(fun(Faces, We, Acc) ->
-			    Rgns = wings_sel:face_regions(Faces,We),
-			    EdgeList0 =
-				lists:foldl(fun(Rgn, Acc0)->
-						Edges = wings_face:outer_edges(Rgn,We),
-						OrdEdges1 = wings_edge_loop:edge_links(Edges,We),
-				    		OrdEdges2 =
-						    lists:foldr(fun(Vs, Acc1)->
-								    [V|_]=Vs0=[V1 || {_, V1, _} <- Vs],
-								    Acc1++[Vs0++[V]]
-								end,[], OrdEdges1),
-				    		[Acc0|OrdEdges2]
-					    end,[],Rgns),
-			    Vs0 = lists:flatten(EdgeList0),
-			    io:format("EdgeLists0: ~p\nFlatten: ~p\n\n",[EdgeList0,Vs0]),
-			    N = wings_face:face_normal_cw(Vs0,We),
-			    #we{vp=Vtab}=We0 =
-				if Flatten -> wings_vertex:flatten(Vs0,N,We);
-				    true -> We
-				end,
-			    Bb = wings_vertex:bounding_box(Vs0, We0),
-			    EdgeList =
-				lists:foldl(fun([], Acc0)-> Acc0;
-					    (VsRgn, Acc0)->
-						Acc0 ++[[array:get(Va,Vtab) || Va <- VsRgn]]
-					    end,[],EdgeList0),
-			    Acc++[{Bb,N,EdgeList}]
-		       end, [], St),
-    make_lathe(Degrees, Sections, Axis, Modify, Shape).
+
+    We0 = gb_trees:get(Id, Shps0),
+    RgnsLst = wings_sel:face_regions(Faces,We0),
+
+    %% uses the normal from the "largest" region as reference for flatten operation
+    RgnN = get_region_normal(RgnsLst, We0),
+    Center0 = wings_sel:center(St),
+
+    %% flatten the selected region creating the pattern
+    {_, #st{shapes=Shps}} = wings_face_cmd:command({flatten,{RgnN, Center0}}, St),
+    We = gb_trees:get(Id, Shps),
+
+    %% prepare the pattern data to be used to create the faces to the "pipe"
+    Shapes0 =
+	lists:foldl(fun(Rgn, {AccEs,AccFs})->
+			PtrnOutline = get_edge_data(Rgn, We),
+			PtrnShape = get_face_data(Rgn, We),
+			case AccEs of
+			    [] -> {PtrnOutline,PtrnShape};
+			    _ -> {AccEs++PtrnOutline,AccFs++PtrnShape}
+			end
+		    end, {[],[]}, RgnsLst),
+    Shapes = process_pattern(Shapes0),
+    build_lathe(Degrees, Sections, Axis, Modify, Shapes);
+make_lathe(_, St) -> St.
+
+get_region_normal(RgnsLst, We) ->
+    [Rgn] =
+	lists:foldr(fun(RgnSet, []) ->
+			    [RgnSet];
+		       (RgnSet, [RgnSetOld]=Acc) ->
+			    if size(RgnSet) > size(RgnSetOld) ->
+			    [RgnSetOld];
+			    true -> Acc
+			    end
+		    end, [], RgnsLst),
+    wings_face:normal(gb_sets:largest(Rgn), We).
+
+
 
 %%%%%
 %%%%% Lathe
 %%%%%
 
-make_lathe(Degrees, Sections, Axis, [Rot, Mov, Ground], Shape) ->
-    io:format("Shape: ~p\n\n------------------\n",[Shape]),
-    {Vs0,Fs} = lathe_verts(Degrees, Sections, Axis, Shape),
-    io:format("\n------------------\nVs: ~p\nFs: ~p\n",[Vs0,Fs]),
+build_lathe(Degrees, Seg, Axis, [Rot, Mov, Ground], {OutVs, FaceVs, VsOutline, VsFaces}=Shapes) ->
+    io:format("\n===========\nShape: ~p\n==========\n",[Shapes]),
+    Vs0 = build_lathe_vertices(Degrees, Seg, Axis, OutVs, FaceVs),
+    io:format("\n------------------\nVs(~p): ~p\n\n",[length(Vs0),Vs0]),
+    OutLen = lists:flatlength(OutVs),
+    FaceLen = lists:flatlength(FaceVs),
+    Fs = build_lathe_faces(Degrees, Seg, {OutLen,FaceLen}, VsOutline, VsFaces),
+    io:format("\n------------------\nFs(~p): ~p\n",[length(Fs),Fs]),
+
     Vs = wings_shapes:transform_obj(Rot,Mov,Ground, Vs0),
-    {new_shape,lathe(),Fs,lists:flatten(Vs)}.
+    {new_shape,lathe(),Fs,Vs}.
 
 fix_axis_dist(x, {_,Y,Z}) -> {0.0,Y,Z};
 fix_axis_dist(y, {X,_,Z}) -> {X,0.0,Z};
 fix_axis_dist(z, {X,Y,_}) -> {X,Y,0.0}.
 
-lathe_verts(Degrees, Sections0, Axis0, Shapes) ->
+build_lathe_vertices(Degrees, Seg, Axis0, OutVs, FaceVs) ->
+    {Min,_Max} = e3d_bv:box(OutVs),
+%    {Xsz,Ysz,Zsz} = e3d_vec:sub(Max, Min),
     Axis = wings_util:make_vector(Axis0),
+    Radius = fix_axis_dist(Axis0,Min),
     Closed = Degrees =:= 360.0,
-    Sections =
-    	if Closed -> Sections0;
-	true -> Sections0+1
+    Vs =
+	case Closed of
+	    true ->
+		%Seg,
+		Delta = Degrees/Seg,
+	    	[transform_shape(I, Radius, Delta, Axis, Min, OutVs) || I <- lists:seq(0,Seg)];
+	    _ ->
+		StopGap = OutVs++FaceVs,
+		Delta = Degrees/Seg+1,
+		VsStart = transform_shape(0, Radius, Delta, Axis, Min, StopGap),
+		VsEnd = transform_shape(Seg, Radius, Delta, Axis, Min, StopGap),
+		VsMiddle = [transform_shape(I, Radius, Delta, Axis, Min, StopGap) || I <- lists:seq(1,Seg)],
+		VsStart ++ VsMiddle ++ VsEnd
 	end,
-    Delta = Degrees/Sections,
-    {Vs,Fs} =
-	lists:foldl(fun({[{X1,Y1,Z1},{X2,Y2,Z2}],_,VsList0}, Acc)->
-			Min = {min(X1,X2),min(Y1,Y2),min(Z1,Z2)},
-	    		Radius = fix_axis_dist(Axis0,Min),
-	    		lists:foldr(fun([_|VsList1], {VsAcc,FsAcc})->
-			    VsList = [e3d_vec:sub(V,Min) || V <- VsList1],
-			    Vs0 = lathe_verts(Sections, Radius, Delta, Axis, lists:reverse(VsList)),
-			    %Vs0 = lathe_verts(Sections, Radius, Delta, Axis, VsList),
-			    Fs0 = lathe_faces(length(VsList),Sections,Closed),
-			    {[Vs0|VsAcc], FsAcc++Fs0}
-			end, Acc,VsList0)
-		    end, {[],[]}, Shapes),
-    {lists:flatten(Vs),Fs}.
-
-lathe_verts(S, Radius, Delta, Axis, VsList) ->
-    RotFun =
-	fun(I) ->
-	    Mt = e3d_mat:translate(Radius),
-	    Mr = e3d_mat:rotate(Delta*I,Axis),
-	    Mm = e3d_mat:mul(Mt,Mr),
-	    [e3d_mat:mul_vector(Mm,V) || V <- VsList]
-	end,
-    Vs = [RotFun(I) || I <- lists:seq(0,S-1)],
     lists:flatten(Vs).
 
-lathe_faces(N,S,Closed) ->
-    N0 = N*(S-1),
-    Ns = lists:seq(0, N-1),
-    Ss = lists:seq(0, S-2),
-    Sides = [[M*N+I, M*N+((I+1) rem N), M*N+(N+(I+1) rem N), M*N+(N+I)] || M <- Ss, I <- Ns],
-    case Closed of
-	true ->
-	    Fun =
-	    fun(I) ->
-		{I1,I2} =
-		if I=:=0 -> {N,N0+N};
-		    true -> {I,N0+I}
-		end,
-		[I, I1-1, I2-1, N0+I]
-	    end,
-	    Close = [Fun(I) || I <- Ns],
-	    lists:append(Sides,Close);
-	_ ->
-	    Front = lists:reverse(lists:seq(0, N-1)),
-	    Back = lists:seq(N0, N0+N-1),
-	    [Front, Back | Sides]
+transform_shape(I, Radius, Delta, Axis, Min, VsList) ->
+    Mt = e3d_mat:translate(Radius),
+    Mr = e3d_mat:rotate(Delta*I,Axis),
+    Mm = e3d_mat:mul(Mt,Mr),
+    lists:foldr(fun(V0, Acc) ->
+		    V = e3d_vec:sub(V0,Min),
+		    Acc++[e3d_mat:mul_vector(Mm,V)]
+		end,[],VsList).
+
+build_lathe_faces(Degrees, Seg0, {OutLen, FaceLen}, VsOutline, VsFaces) ->
+    Closed = Degrees =:= 360.0,
+    {StartIdx, Seg} =
+	case Closed of
+	    true -> {0,Seg0};
+	    _ -> {(OutLen+FaceLen)*2, Seg0-1}
+	end,
+    io:format("VsOutline: ~p\nVsFaces: ~p\nOutLen: ~p\nFaceLen: ~p\nStartIdx: ~p\nSeg: ~p\n\n",[VsOutline, VsFaces, OutLen, FaceLen, StartIdx,Seg]),
+
+    Sides =
+	lists:foldl(fun(S, AccSds) ->
+			lists:foldl(fun(Vs, AccSds0) ->
+					Idx = StartIdx+(OutLen*S),
+					build_face(Vs, Idx, AccSds0)
+				    end, AccSds, VsOutline)
+		    end, [], lists:seq(0,Seg)),
+
+    Fs =
+	case Closed of
+	    true ->
+		lists:foldl(fun(Vs, AccSds0) ->
+		    lists:foldl(fun([_], Acc) -> Acc;
+				   ([V1|[V2|_]], Acc) ->
+				       Idx = StartIdx+OutLen*Seg,
+				       [[V1+Idx,V2+Idx,V2,V1]|Acc]
+				end, AccSds0, Vs)
+			    end, Sides, VsOutline);
+	    _ ->
+		FsStart = VsFaces,
+		FsEnd = [[(V+StartIdx) || V <- Vs] || Vs <- VsFaces],
+		FsStart ++ Sides ++ FsEnd
+	end,
+    Fs.
+
+build_face([_], _, Acc) -> Acc;
+build_face([V1|[V2|_]=H], Idx, Acc) ->
+    io:format(" -> V1: ~p | V2: ~p | Idx: ~p\n",[V1,V2,Idx]),
+    Acc0 = [V1,V2,V2+Idx,V1+Idx],
+    build_face(H, Idx, [Acc0|Acc]).
+
+get_face_data([], _) -> [];
+get_face_data(Fs, We) when is_list(Fs) ->
+    get_face_data(gb_sets:from_list(Fs), We);
+get_face_data(Fs, We) ->
+    gb_sets:fold(fun(F, Acc)->
+		    Einfo = get_edge_data([F], We),
+		    [Finfo] = get_edges_seq(Einfo,[]),
+		    Acc ++Finfo
+		 end, [], Fs).
+
+get_edge_data([], _)-> [];
+get_edge_data(Fs, We) when is_list(Fs) ->
+    get_edge_data(gb_sets:from_list(Fs), We);
+get_edge_data(Fs, #we{es=Etab, vp=Vtab}=We) ->
+    Edges = wings_face:outer_edges(Fs, We),
+    Einfo =
+	lists:foldl(fun(E, Acc) ->
+			#edge{vs=Vs,ve=Ve,lf=Lf} = array:get(E, Etab),
+			Vps = array:get(Vs, Vtab),
+			Vpe = array:get(Ve, Vtab),
+			Ei =
+			    case gb_sets:is_member(Lf,Fs) of
+				true -> {E, Vps, Vpe};
+				_ ->  {E, Vpe, Vps}
+			    end,
+			Acc++[Ei]
+		    end, [], Edges),
+    get_edges_seq(Einfo,[]).
+
+get_edges_seq([], Acc) -> Acc;
+get_edges_seq([H|T], Acc) ->
+    {NewList,Seg} = get_edges_seq_0(H, T, {[],[H]}),
+    get_edges_seq(NewList, Acc++[Seg]).
+
+get_edges_seq_0(_, [], Acc) -> Acc;
+get_edges_seq_0({_,_,Vb}, List, {_,Seq}=Acc) ->
+    case lists:keytake(Vb, 2, List) of
+	{value, H0, List2} ->
+	    get_edges_seq_0(H0, List2, {List2, Seq++[H0]});
+	_ -> Acc
     end.
+
+%%
+%%
+%%
+process_pattern({RgnOutline,Faces0}) ->
+    %% mapping the vertices of the regions' outline
+    {Idx, VsMap0, VsOutline} =
+	lists:foldl(fun(Es, {Idx0,Acc0,Vs0}) ->
+			{Idx1,Acc1,Vs1} =
+			    lists:foldl(fun({_,_Ve,Vs}, {Idx, Acc, Vcc}) ->
+					    case gb_sets:size(Acc) of
+						0 -> {Idx+1, gb_trees:enter(Vs, Idx, Acc), [Idx]};
+						_ ->
+						    case gb_trees:lookup(Vs, Acc) of
+							none ->
+							    {Idx+1, gb_trees:enter(Vs, Idx, Acc),[Idx|Vcc]};
+							{value, Idx2} ->
+							    {Idx, Acc, [Idx2|Vcc]}
+						    end
+					    end
+					end, {Idx0,Acc0,[]}, Es),
+	    		{Idx1,Acc1,[lists:reverse(Vs1)|Vs0]}
+		    end, {0, gb_trees:empty(), []}, RgnOutline),
+
+    %% mapping the vertices of the regions' faces (some are already in the outline)
+    {_, VsMap1, VsFaces} =
+	lists:foldl(fun(Fs, {Idx1,Outline2,Acc0}) ->
+	    		{Idx2,Outline4,Fs0} =
+			    lists:foldl(fun({_,_,Vs}, {Idx3,Outline3,Acc}) ->
+					    case gb_trees:lookup(Vs, Outline3) of
+						none ->
+						    {Idx3+1, gb_trees:enter(Vs, Idx3, Outline3), Acc++[Idx3]};
+						{value, V} -> {Idx3, Outline3, Acc++[V]}
+					    end
+					end, {Idx1,Outline2,[]}, Fs),
+			case Acc0 of
+			    [] -> {Idx2,Outline4,[Fs0]};
+			    _ -> {Idx2,Outline4,Acc0++[Fs0]}
+			end
+		    end, {Idx, VsMap0, []}, Faces0),
+
+    VsTmp0 = coord_to_index(gb_trees:to_list(VsMap0)),
+    VsTmp1 = coord_to_index(gb_trees:to_list(VsMap1)),
+    VsTmp2 = lists:subtract(VsTmp1, VsTmp0),
+    OutVs  = [Coord || {_,Coord} <-VsTmp0],
+    FaceVs = [Coord || {_,Coord} <-VsTmp2],
+
+%%    io:format("VsTmp0: ~p\n",[VsTmp0]),
+%%    io:format("VsTmp1: ~p\n",[VsTmp1]),
+%%    io:format("VsMap: ~p\n",[VsMap]),
+%%    io:format("VsOutline: ~p\n",[VsOutline]),
+%%    io:format("VsFaces: ~p\n",[VsFaces]),
+    {OutVs, FaceVs, VsOutline, VsFaces}.
+
+coord_to_index(Src) ->
+    lists:sort([{Value,Key} || {Key,Value} <- Src]).
