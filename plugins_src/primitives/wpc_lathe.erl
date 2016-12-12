@@ -112,7 +112,7 @@ get_region_normal(RgnsLst, We) ->
 %%%%%
 
 build_lathe(Degrees, Seg, Axis, [Rot, Mov, Ground], {OutVs, FaceVs, VsOutline, VsFaces}=Shapes) ->
-    io:format("\n===========\nShape: ~p\n==========\n",[Shapes]),
+    io:format("\n===========\nShape: ~p\n",[Shapes]),
     Vs0 = build_lathe_vertices(Degrees, Seg, Axis, OutVs, FaceVs),
     io:format("\n------------------\nVs(~p): ~p\n\n",[length(Vs0),Vs0]),
     OutLen = lists:flatlength(OutVs),
@@ -138,13 +138,13 @@ build_lathe_vertices(Degrees, Seg, Axis0, OutVs, FaceVs) ->
 	    true ->
 		%Seg,
 		Delta = Degrees/Seg,
-	    	[transform_shape(I, Radius, Delta, Axis, Min, OutVs) || I <- lists:seq(0,Seg)];
+	    	[transform_shape(I, Radius, Delta, Axis, Min, OutVs) || I <- lists:seq(0,Seg-1)];
 	    _ ->
-		StopGap = OutVs++FaceVs,
-		Delta = Degrees/Seg+1,
-		VsStart = transform_shape(0, Radius, Delta, Axis, Min, StopGap),
-		VsEnd = transform_shape(Seg, Radius, Delta, Axis, Min, StopGap),
-		VsMiddle = [transform_shape(I, Radius, Delta, Axis, Min, StopGap) || I <- lists:seq(1,Seg)],
+%		StopGap = OutVs++FaceVs,
+		Delta = Degrees/Seg,
+		VsStart = transform_shape(0, Radius, Delta, Axis, Min, FaceVs),
+		VsEnd = transform_shape(Seg, Radius, Delta, Axis, Min, FaceVs),
+		VsMiddle = [transform_shape(I, Radius, Delta, Axis, Min, OutVs) || I <- lists:seq(1,Seg-1)],
 		VsStart ++ VsMiddle ++ VsEnd
 	end,
     lists:flatten(Vs).
@@ -155,7 +155,7 @@ transform_shape(I, Radius, Delta, Axis, Min, VsList) ->
     Mm = e3d_mat:mul(Mt,Mr),
     lists:foldr(fun(V0, Acc) ->
 		    V = e3d_vec:sub(V0,Min),
-		    Acc++[e3d_mat:mul_vector(Mm,V)]
+		    [e3d_mat:mul_vector(Mm,V)|Acc]
 		end,[],VsList).
 
 build_lathe_faces(Degrees, Seg0, {OutLen, FaceLen}, VsOutline, VsFaces) ->
@@ -163,15 +163,19 @@ build_lathe_faces(Degrees, Seg0, {OutLen, FaceLen}, VsOutline, VsFaces) ->
     {StartIdx, Seg} =
 	case Closed of
 	    true -> {0,Seg0};
-	    _ -> {(OutLen+FaceLen)*2, Seg0-1}
+	    _ -> {(FaceLen-OutLen), Seg0-1}
 	end,
-    io:format("VsOutline: ~p\nVsFaces: ~p\nOutLen: ~p\nFaceLen: ~p\nStartIdx: ~p\nSeg: ~p\n\n",[VsOutline, VsFaces, OutLen, FaceLen, StartIdx,Seg]),
+    io:format("\n------------------\nVsOutline(~p) ~p\nVsFaces(~p): ~p\nStartIdx: ~p\nSeg: ~p\n",[VsOutline, OutLen, VsFaces, FaceLen, StartIdx, Seg]),
 
     Sides =
 	lists:foldl(fun(S, AccSds) ->
-			lists:foldl(fun(Vs, AccSds0) ->
-					Idx = StartIdx+(OutLen*S),
-					build_face(Vs, Idx, AccSds0)
+			{Idx,Step} =
+			    if S =:= 0 -> {(OutLen*S), OutLen +StartIdx};
+			    true -> {StartIdx+(OutLen*S), OutLen}
+			    end,
+			lists:foldl(fun([V|_]=Vs, AccSds0) ->
+					build_face(Vs++[V], Idx, Step, AccSds0)
+%					lists:reverse(build_face(Vs++[V], Idx, Step, AccSds0))
 				    end, AccSds, VsOutline)
 		    end, [], lists:seq(0,Seg)),
 
@@ -186,17 +190,21 @@ build_lathe_faces(Degrees, Seg0, {OutLen, FaceLen}, VsOutline, VsFaces) ->
 				end, AccSds0, Vs)
 			    end, Sides, VsOutline);
 	    _ ->
-		FsStart = VsFaces,
-		FsEnd = [[(V+StartIdx) || V <- Vs] || Vs <- VsFaces],
+		StartIdx0 = FaceLen + OutLen * Seg,
+		FsStart = [lists:reverse(Vs) || Vs <- VsFaces],
+		FsEnd = [[(V+StartIdx0) || V <- Vs] || Vs <- VsFaces],
+%		FsStart = VsFaces,
+%		FsEnd = [lists:reverse([(V+StartIdx0) || V <- Vs]) || Vs <- VsFaces],
+		io:format(" -> FsStart: ~p\n -> Sides: ~p\n -> FsEnd: ~p\n",[FsStart,Sides,FsEnd]),
 		FsStart ++ Sides ++ FsEnd
 	end,
     Fs.
 
-build_face([_], _, Acc) -> Acc;
-build_face([V1|[V2|_]=H], Idx, Acc) ->
-    io:format(" -> V1: ~p | V2: ~p | Idx: ~p\n",[V1,V2,Idx]),
-    Acc0 = [V1,V2,V2+Idx,V1+Idx],
-    build_face(H, Idx, [Acc0|Acc]).
+build_face([_], _, _, Acc) -> Acc;
+build_face([V1|[V2|_]=H], Idx, Len, Acc) ->
+    Acc0 = [Idx+V2,Idx+V2+Len,Idx+V1+Len,Idx+V1],
+%    Acc0 = [Idx+V1,Idx+V1+Len,Idx+V2+Len,Idx+V2],
+    build_face(H, Idx, Len, [Acc0|Acc]).
 
 get_face_data([], _) -> [];
 get_face_data(Fs, We) when is_list(Fs) ->
@@ -282,14 +290,14 @@ process_pattern({RgnOutline,Faces0}) ->
 
     VsTmp0 = coord_to_index(gb_trees:to_list(VsMap0)),
     VsTmp1 = coord_to_index(gb_trees:to_list(VsMap1)),
-    VsTmp2 = lists:subtract(VsTmp1, VsTmp0),
     OutVs  = [Coord || {_,Coord} <-VsTmp0],
-    FaceVs = [Coord || {_,Coord} <-VsTmp2],
+    FaceVs = [Coord || {_,Coord} <-VsTmp1],
 
-%%    io:format("VsTmp0: ~p\n",[VsTmp0]),
+    io:format("VsTmp0: ~p\n",[VsTmp0]),
+    io:format("VsOutline: ~p\n==============================\n",[VsOutline]),
+
 %%    io:format("VsTmp1: ~p\n",[VsTmp1]),
 %%    io:format("VsMap: ~p\n",[VsMap]),
-%%    io:format("VsOutline: ~p\n",[VsOutline]),
 %%    io:format("VsFaces: ~p\n",[VsFaces]),
     {OutVs, FaceVs, VsOutline, VsFaces}.
 
