@@ -12,7 +12,7 @@
 %%
 
 -module(wings_rotate).
--export([setup/2,rotate/4]).
+-export([setup/2,rotate/4,rotate/5]).
 -include("wings.hrl").
 
 -import(lists, [foldl/3]).

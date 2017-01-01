@@ -34,7 +34,7 @@ menu({face,scale}, Menu0) ->
 menu({face,rotate}, Menu0) ->
     Menu0 ++ [separator,
 	      {?__(5,"Region"),region,
-	       ?__(6,"Rotate region around the normal of its edge loop.")}];
+	       ?__(6,"Rotate region around the normal of its edge loop."),[magnet]}];
 menu({face,flatten}, Menu0) ->
     Menu0 ++ [separator,
 	      {?__(7,"Region"),region,
@@ -56,12 +56,48 @@ command({face,{rotate,region}}, St) ->
       fun(Faces, We) ->
               rotate_region(Faces, We)
       end, [angle], St);
+command({face,{rotate,{'ASK',Ask}}}, St) ->
+    wings:ask(Ask, St, fun setup/2);
 command({face,{flatten,region}}, St) ->
     wpa:sel_map(
       fun(Faces, We) ->
 	      flatten_region(Faces, We)
       end, St);
 command(_, _) -> next.
+
+
+setup({region,Magnet}, St) ->
+    io:format("Magnet: ~p\n",[Magnet]),
+    F = fun(Faces, We) ->
+	    {Vs,DrgFun} = faces_to_vertices(Magnet, Faces, We),
+	    {lists:usort(Vs), DrgFun}
+	end,
+    init_drag(F, Magnet, St).
+
+init_drag(F, Magnet, St) when is_function(F, 2) ->
+    Flags = wings_magnet:flags(Magnet, []),
+    io:format("Flags: ~p\n",[Flags]),
+    wings_drag:fold(F, [angle,falloff], Flags, St).
+
+%%
+%% Conversion of face selections to vertices.
+%%
+
+faces_to_vertices(Magnet, Faces0, We) ->
+    Fs = wings_sel:face_regions(Faces0, We),
+    Ts = [faces_to_vertices_1(Magnet, Faces, We) || Faces <- Fs],
+%    io:format("Fs: ~p\nTs: ~p\n",[Fs,Ts]),
+    wings_drag:compose(Ts).
+
+faces_to_vertices_1(Magnet, Faces, We) ->
+    Ns = gb_sets:fold(
+	fun(Face, N0) ->
+	    [wings_face:normal(Face, We)|N0]
+	end, [], Faces),
+    Vec = e3d_vec:norm(e3d_vec:add(Ns)),
+    Vs = wings_face:to_vertices(Faces, We),
+    wings_rotate:rotate(Vec, center, Magnet, Vs, We).
+
 
 %%%
 %%% Move Region.

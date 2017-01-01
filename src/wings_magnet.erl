@@ -29,6 +29,7 @@ setup({magnet,Type,Route,Point}, VsSel, We) ->
     Magnet = {Type,R},
     VsInf = recalc(1.0, VsDist, Magnet),
     Affected = foldl(fun({V,_,_,_}, A) -> [V|A] end, [], VsInf),
+    io:format("\n-----\n VsSel: ~p\n Affected: ~p\n\n",[VsSel,Affected]),
     {VsInf,Magnet,Affected}.
 
 %%%% Requires the wpc_magnet_mask plugin.
