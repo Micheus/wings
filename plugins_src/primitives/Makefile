@@ -37,6 +37,7 @@ MODULES= \
 	wpc_plane \
 	wpc_spiral \
 	wpc_torus \
+	wpc_heightmap_surface \
 	wpc_tt
 
 TARGET_FILES= $(MODULES:%=$(EBIN)/%.beam)
