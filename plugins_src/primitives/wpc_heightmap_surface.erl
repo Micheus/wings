@@ -2,6 +2,7 @@
 %%
 %%     A surface creator by using a heiht map (gray scale or color: red->blue[raibow])
 %%  Copyright (c) 2011,2012,2013 Micheus
+%%      08/2019 - ported to v2.2.4
 %%
 %%  See the file "license.terms" for information on usage and redistribution
 %%  of this file, and for a DISCLAIMER OF ALL WARRANTIES.
@@ -11,7 +12,7 @@
 
 -module(wpc_heightmap_surface).
 
--export([update_dlist/3, draw/4, get_data/3, merge_we/1]).
+-export([update_dlist/3, draw/5, get_data/3, merge_we/1]).
 
 -define(NEED_OPENGL, 1).
 -define(NEED_ESDL, 1).
@@ -19,7 +20,7 @@
 -define(START_DENSITY, 30.0).
 -define(MAX_SOURCE_WEIGTH, 384*384).
 -define(MAX_HUE_VALUE, 360.0).
--define(MAX_RGB_VALUE, 255).
+-define(MAX_RGB_VALUE, 255.0).
 -define(BOTTOM_Y, 0.0).
 -define(HUE_PARAMS, {1.0,1.0}).
 -define(RGB_PARAMS, {1.0,0.0}).
@@ -30,8 +31,8 @@
 -define(CR_HEIGHT, ?CR_H+2*?CR_START).
 -define(SHAPE_NAME, "heightmap_surface").
 
--include("wings.hrl").
--include("e3d_image.hrl").
+-include_lib("wings/src/wings.hrl").
+-include_lib("wings/e3d/e3d_image.hrl").
 
 -export([init/0,menu/2,command/2]).
 
@@ -45,7 +46,7 @@
 -record(img_info,
     {work_image=none,
      prev_info=none,    % ImgId,W,H
-     src_info=none,		% FileName,W,H,Bpp
+     src_info=none,	% FileName,W,H,Bpp
      w=0,
      h=0,
      bpp=0,
@@ -90,49 +91,63 @@ load_heightmap_image(FileName,St) ->
     error -> keep;
     {SrcInfo,Image0} ->
         wings_wm:message(?__(1,"Resizing the image if needed...")),
+        io:format("*** load_heightmap_image - before maybe_resize...\n",[]),
         case maybe_resize(Image0) of
         {error,GlErr} ->
             wpa:error_msg(?__(2,"The image cannot be resized.\nFile:") ++ "\"~s\"\n" ++
                           ?__(3,"GLU Error:") ++ " ~p - ~s\n",
                   [FileName,GlErr, glu:errorString(GlErr)]);
         #e3d_image{width=W,height=H}=Image ->
+            io:format("*** load_heightmap_image - before process_elevation...\n",[]),
             process_elevation(SrcInfo,Image,init_density(W,H)),
+            io:format("*** load_heightmap_image - before make_heightmap...\n",[]),
             make_heightmap(St)
         end
     end.
 
 read_image(FileName0) ->
     Ps = [{filename,FileName0}],
-    wings_wm:message(?__(1,"Reading image file...")),
     case wpa:image_read(Ps) of
     {error,Error} ->
         wpa:error_msg(?__(2,"Failed to load file:")++" ~s\n",
               [file:format_error(Error)]),
         error;
-    Image ->
+    Image0 ->
         wings_pref:set_value(image_repository, filename:dirname(FileName0)),
-        #e3d_image{filename=FileName,width=W,height=H,bytes_pp=Bpp}=Image,
-        SrcInfo={FileName,W,H,Bpp},
         wings_wm:message(?__(3,"Optimizing amount of color channel...")),
-        {SrcInfo,maybe_new_chanel(Image)}
+        #e3d_image{filename=FileName,width=W,height=H,bytes_pp=Bpp} = Image = maybe_new_chanel(Image0),
+        io:format("*** read_image - before maybe_new_chanel: ~p\n",[{W,H,Bpp}]),
+        {{FileName,W,H,Bpp},Image}
     end.
 
-maybe_new_chanel(#e3d_image{bytes_pp=1,image=Pixels}=Image) ->
-    NewPix= [mount_bit(G,G,G) || <<G:1/binary>> <= Pixels],
-    PixBin= list_to_binary(NewPix),
-    Image#e3d_image{image=PixBin,bytes_pp=4,type=r8g8b8a8};
-maybe_new_chanel(#e3d_image{bytes_pp=3,image=Pixels}=Image) ->
-    NewPix= [mount_bit(R,G,B) || <<R:1/binary,G:1/binary,B:1/binary>> <= Pixels],
-    PixBin= list_to_binary(NewPix),
-    Image#e3d_image{image=PixBin,bytes_pp=4,type=r8g8b8a8};
-maybe_new_chanel(Image) -> Image.
-
-mount_bit(R,G,B) ->
-    [R,G,B,<<0>>].
+maybe_new_chanel(#e3d_image{bytes_pp=1}=Image) -> Image;
+maybe_new_chanel(#e3d_image{bytes_pp=2}=Image) -> e3d_image:convert(Image,g8);
+maybe_new_chanel(#e3d_image{bytes_pp=Bpp0,width=W,height=H,image=Pixels}=Image) ->
+    Bpp=Bpp0-3,
+    io:format("*** maybe_new_chanel - before process Ca...\n",[]),
+    Ca = [R || << R:1/binary, G:1/binary, B:1/binary, _:Bpp/binary >> <= Pixels, R=:=G, G=:=B],
+    %% checking if it's 32bits gray scale
+    io:format("*** maybe_new_chanel - after process Ca...\n",[]),
+    case (lists:flatlength(Ca) == W*H) of
+        true -> e3d_image:convert(Image,g8);
+        false -> e3d_image:convert(Image,r8g8b8)
+    end.
+%%maybe_new_chanel(#e3d_image{bytes_pp=1}=Image) ->
+%%    NewPix= [mount_bit(G,G,G) || <<G:1/binary>> <= Pixels],
+%%    PixBin= list_to_binary(NewPix),
+%%    Image#e3d_image{image=PixBin,bytes_pp=4,type=r8g8b8a8};
+%%maybe_new_chanel(#e3d_image{bytes_pp=3,image=Pixels}=Image) ->
+%%    NewPix= [mount_bit(R,G,B) || <<R:1/binary,G:1/binary,B:1/binary>> <= Pixels],
+%%    PixBin= list_to_binary(NewPix),
+%%    Image#e3d_image{image=PixBin,bytes_pp=4,type=r8g8b8a8};
+%%maybe_new_chanel(Image) -> Image.
+%%
+%%mount_bit(R,G,B) ->
+%%    [R,G,B,<<0>>].
 
 make_heightmap(St) ->
     {dialog,Dlg,Fun}=make_heightmap_dialog(St,[init]),
-    wings_ask:dialog(?__(12,"Create a surface from height map"),{preview,Dlg},Fun).
+    wings_dialog:dialog(?__(12,"Create a surface from height map"),{preview,Dlg},Fun).
 
 
 make_heightmap_dialog(St,Arg) ->
@@ -140,9 +155,11 @@ make_heightmap_dialog(St,Arg) ->
     {dialog,
      heightmap_dialog(Arg),
      fun
-        ({dialog_preview,Res}) ->
-            #st{shapes=Shapes_Prw}=St_Prw=get_current_state(),
-            St1=case gb_trees:lookup(Oid,Shapes_Prw) of
+         ({dialog_preview,Res}) ->
+            io:format("make_heightmap_dialog - dialog_preview\n",[]),
+            #st{shapes=Shapes_Prw} = St_Prw = get_current_state(),
+            St1 =
+              case gb_trees:lookup(Oid,Shapes_Prw) of
                 {value, #we{pst=Pst_Prw}=We_Prw} ->
                     case gb_trees:lookup(?MODULE,Pst_Prw) of
                         {value, {_,Old_Res}} ->
@@ -153,11 +170,12 @@ make_heightmap_dialog(St,Arg) ->
                                     case Field of
                                         {Fld, _} when Fld=:=density; Fld=:=iw; Fld=:=ih ->
                                             process_density(Res);
-                                        {cr, _} ->
-                                            build_color_ramp(Res);
+%%                                        {cr, _} ->
+%%                                            build_color_ramp(Res);
                                         _ -> ok
                                     end,
                                     Params=process_surface(Res),
+                                    io:format("After process_surface(Res)\n",[]),
                                     Pst_Prw0=gb_trees:enter(?MODULE,{Params,Res},Pst_Prw),
                                     St_Prw#st{shapes=gb_trees:enter(Oid,We_Prw#we{pst=Pst_Prw0},Shapes_Prw)}
                             end;
@@ -168,11 +186,12 @@ make_heightmap_dialog(St,Arg) ->
                     {Vs,Fs}=make_preview(),
                     Params=process_surface(Res),
                     #we{pst=Pst}=We=wings_we:build(Fs,Vs),
+                    io:format("After make_preview() and process_surface(Res)\n",[]),
                     Pst0=gb_trees:enter(?MODULE,{Params,Res},Pst),
                     Name=?SHAPE_NAME++integer_to_list(Oid),
-                    St_Prw=get_current_state(),
+                    St_Prw = get_current_state(),
                     St_Prw#st{shapes=gb_trees:enter(Oid,We#we{name=Name, pst=Pst0},Shapes)}
-            end,
+              end,
             {preview,St1,St1};
         (cancel) ->
             cleanup(),
@@ -184,7 +203,7 @@ make_heightmap_dialog(St,Arg) ->
                     {dialog,Dlg,Fun}=make_heightmap_dialog(St,Res),
                     {dialog,{preview,Dlg},Fun};
                 _ ->
-                    #st{shapes=Shapes_Prw}=get_current_state(),
+                    #st{shapes=Shapes_Prw} = get_current_state(),
                     St1=case gb_trees:lookup(Oid,Shapes_Prw) of
                         {value, #we{pst=Pst_Prw}} ->
                             {_, {Params,Old_Res}}=gb_trees:lookup(?MODULE,Pst_Prw),
@@ -202,16 +221,16 @@ make_heightmap_dialog(St,Arg) ->
             end
       end}.
 
-
 heightmap_dialog([init]) ->
     #img_info{prev_info=PreviewInfo,hmin=MinEm,hmax=MaxEm,w=W0,h=H0,bpp=Bpp0}=wings_pref:get_value(heightmap_img_info),
-    {HiValue,{Hue_p1,Hue_p2}}=if Bpp0 > 2 ->
-        {?MAX_HUE_VALUE,?HUE_PARAMS};
-      true ->
-        {?MAX_RGB_VALUE,?RGB_PARAMS}
-    end,
+    {HiValue,{Hue_p1,Hue_p2}} =
+        if Bpp0 > 2 ->
+            {?MAX_HUE_VALUE,?HUE_PARAMS};
+          true ->
+            {?MAX_RGB_VALUE,?RGB_PARAMS}
+        end,
     Cr=#cr{},
-    build_color_ramp(Cr),
+%%    build_color_ramp(Cr),
     TexSz=case nearest_power_two(max(W0,H0)) of
         TexSz0 when TexSz0 < 128 -> 128;
         TexSz0 -> TexSz0
@@ -229,8 +248,6 @@ heightmap_dialog([init]) ->
     {iw,trunc(W0*(Density/100.0))},
     {ih,trunc(H0*(Density/100.0))},
     {hi_value,HiValue},
-    {hue_p1,Hue_p1},
-    {hue_p2,Hue_p2},
     {bf,false},
     {sf,false},
     {he,true},
@@ -238,10 +255,10 @@ heightmap_dialog([init]) ->
     {cr_preset,custom},
     {tcut_lo,MinEm*100.0},
     {tcut_hi,MaxEm*100.0},
-    {scut_lo_c,?MAX_HUE_VALUE-MinEm*?MAX_HUE_VALUE},
-    {scut_hi_c,?MAX_HUE_VALUE-MaxEm*?MAX_HUE_VALUE},
-    {scut_lo_m,MinEm},
-    {scut_hi_m,MaxEm},
+    {scut_lo_c, build_color(?MAX_HUE_VALUE,1.0-MinEm,Hue_p1,Hue_p2)},
+    {scut_hi_c, build_color(?MAX_HUE_VALUE,1.0-MaxEm,Hue_p1,Hue_p2)},
+    {scut_lo_m, build_color(?MAX_RGB_VALUE,MinEm,Hue_p1,Hue_p2)},
+    {scut_hi_m, build_color(?MAX_RGB_VALUE,MaxEm,Hue_p1,Hue_p2)},
     {mt,false},
     {texsz,TexSz},
     {cr,Cr}],
@@ -260,8 +277,6 @@ heightmap_dialog(Arg) ->
     IW = dict:fetch(iw,ArgDict),
     IH = dict:fetch(ih,ArgDict),
     HiValue = dict:fetch(hi_value,ArgDict),
-    Hue_p1 = dict:fetch(hue_p1,ArgDict),
-    Hue_p2 = dict:fetch(hue_p2,ArgDict),
     Bf = dict:fetch(bf,ArgDict),
     Sf = dict:fetch(sf,ArgDict),
     He = dict:fetch(he,ArgDict),
@@ -269,221 +284,205 @@ heightmap_dialog(Arg) ->
     Preset = dict:fetch(cr_preset,ArgDict),
     TextLo = dict:fetch(tcut_lo,ArgDict),
     TextHi = dict:fetch(tcut_hi,ArgDict),
-    MinEc = dict:fetch(scut_lo_c,ArgDict),
-    MaxEc = dict:fetch(scut_hi_c,ArgDict),
-    MinEm = dict:fetch(scut_lo_m,ArgDict),
-    MaxEm = dict:fetch(scut_hi_m,ArgDict),
+    SliderLoC = dict:fetch(scut_lo_c,ArgDict),
+    SliderHiC = dict:fetch(scut_hi_c,ArgDict),
+    SliderLoM = dict:fetch(scut_lo_m,ArgDict),
+    SliderHiM = dict:fetch(scut_hi_m,ArgDict),
     Mt = dict:fetch(mt,ArgDict),
     TexSz = dict:fetch(texsz,ArgDict),
     Cr = (dict:fetch(cr,ArgDict))#cr{name=Preset},
 
-    LoSliderC={slider,[{color,{h,hue_p1,hue_p2}},{range,{0.0,?MAX_HUE_VALUE}},{key,scut_lo_c},{value,MinEc},{hook,fun dlg_default_hook/2}]},
-    HiSliderC={slider,[{color,{h,hue_p1,hue_p2}},{range,{0.0,?MAX_HUE_VALUE}},{key,scut_hi_c},{value,MaxEc},{hook,fun dlg_default_hook/2}]},
-    LoSliderM={slider,[{color,{v,hue_p1,hue_p2}},{range,{0.0,1.0}},{key,scut_lo_m},{value,MinEm},{hook,fun dlg_default_hook/2}]},
-    HiSliderM={slider,[{color,{v,hue_p1,hue_p2}},{range,{0.0,1.0}},{key,scut_hi_m},{value,MaxEm},{hook,fun dlg_default_hook/2}]},
     [{vframe,[
         {hframe,[
-           {vframe,[
-              {dashboard,PreviewInfo,?PREVIEW_SIZE+2,?PREVIEW_SIZE+2,fun image_handle/2,
-                [{info, ?__(26,"LL: Open the image dialog box")},{key,prw}]}]},
-           {vframe,[
+              {value, PreviewInfo, [{key,prw}]},
+%%           {vframe,[
+%%              {dashboard,PreviewInfo,?PREVIEW_SIZE+2,?PREVIEW_SIZE+2,fun image_handle/2,
+%%                [{info, ?__(26,"LL: Open the image dialog box")},{key,prw}]}]},
+%%           {vframe,[
               {vframe,[
-                {custom,?CHAR_WIDTH*18+2,?CHAR_HEIGHT*5+2,fun prw_info/5}]},
+		  {custom_gl,?PREVIEW_SIZE+2,?PREVIEW_SIZE+2,fun image_preview/2}
+              ]},
               {vframe,[
-                {hframe,[
-                  {label,?__(23,"Density:")},
-                  {custom,?CHAR_WIDTH*15,?LINE_HEIGHT,fun density_preview/5}]},
-                {hframe,[
-                  {slider,[{range,{10.0,100.0}},{key,density},{value,Density},{hook,fun dlg_default_hook/2}]}]}
-              ]}
-           ]}],
-           [
-              {title,?__(13,"Image Info")} ]},
+                {hframe, [
+                    {vframe,[
+                        {label, ?__(1,"Width:")++"  "},
+                        {label, ?__(2,"Height:")++"  "},
+                        {label, ?__(3,"Channels:")++"  "},
+                        {label, ?__(20,"Min Value:")++"  "},
+                        {label, ?__(21,"Max Value:")++"  "}
+                    ]},
+                    {custom_gl,?CHAR_WIDTH*15,?LINE_HEIGHT*5,fun prw_info/2}
+                ],[{margin,false},{key,pnlInfo}]},
+                {hframe, [
+                    {label, ?__(23,"Density:")++"  "},
+		    {custom_gl,?CHAR_WIDTH*15,?LINE_HEIGHT,fun density_preview/2,[{key,prwDnsity}]}
+		]},
+		{slider,[{range,{10.0,100.0}},{key,density},{value,Density},{hook,fun dlg_default_hook/3}]}
+	      ],[{title,""}]}
+%%	   ]}
+        ],[{title,?__(13,"Image Info")}]},
+        {hframe,[
+	    {hradio, [{?__(31,"Mesh")++"  ",mesh},
+		      {?__(32,"Blocks")++"  ", block}], Mode,[{key, mode},{hook,fun dlg_default_hook/3}]},
+            panel,
+	    {?__(33,"Build null block"),Nb,[{key,nb}]}
+%%           {hframe,[
+%%%               {?__(33,"Build null block"),Nb,[{key,nb},{hook,dlg_disable_hook(mode)}]}
+%%               ]
+            ]
+           }], [{title,?__(34,"Contruction method")}]},
         {vframe,[
            {hframe,[
-               {hradio, [{?__(31,"Mesh")++"  ",mesh},{?__(32,"Blocks")++"   ", block}], Mode, [{key, mode}, {hook,fun dlg_default_hook/2}]},
-               {?__(33,"Build null block"),Nb,[{key,nb}]}
-%               {?__(33,"Build null block"),Nb,[{key,nb},{hook,dlg_disable_hook(mode)}]}
-               ]
-           }],
-        [
-           {title,?__(34,"Contruction method")} ]},
-        {vframe,[
-           {hframe,[
-               {?__(5,"Keep aspect ratio"),Ar,[{hook,fun dlg_default_hook/2},{key,ar}]} ]
-           },
+               {?__(5,"Keep aspect ratio"),Ar,[{hook,fun dlg_default_hook/3},{key,ar}]}
+           ]},
            {hframe,[
               {vframe,[
                 {label,?__(6,"Width (X)")},
-                {hframe,[
-                {label,?__(7,"Length (Z)")}],[{hook,dlg_disable_hook(ar,true)}]},
-                {label,?__(8,"Height (Y)")},
+%%                {hframe,[
+%%                {label,?__(7,"Length (Z)")}],[{hook,dlg_disable_hook(ar,true)}]},
                 {label,?__(15,"Lower cut (%)")},
-                {label,?__(16,"High cut (%)")} ]
-              },
+                {label,?__(16,"High cut (%)")}
+              ]},
               {vframe,[
+                {hframe,[
+                   {text,Ws,[{range,{0.01,infinity}},{width,6},{hook,fun dlg_default_hook/3},{key,ws}]},
+                   {hframe,[
+                       {label,?__(7,"Length (Z)")},
+%%                       {text,Hs,[{range,{0.01,infinity}},{width,6},{hook,dlg_disable_hook(ar,true)},{key,hs}]}
+                       {text,Hs,[{range,{0.01,infinity}},{width,6},{key,hs}]}
+                   ],[{margin,false}]},
+                   panel,
+                   {hframe,[
+                       {label,?__(8,"Height (Y)")},
+                       {text,Es,[{range,{0.01,infinity}},{width,6},{key,es}]}
+                   ],[{margin,false}]}
+                ]},
                 {vframe,[
-                   {text,Ws,[{range,{0.01,infinity}},{width,6},{hook,fun dlg_default_hook/2},{key,ws}]},
-                   {text,Hs,[{range,{0.01,infinity}},{width,6},{hook,dlg_disable_hook(ar,true)},{key,hs}]},
-                   {text,Es,[{range,{0.01,infinity}},{width,6},{key,es}]} ]
-                },
-                {vframe,[
-                   {value,false,[no_focus,{key,rebuild}]},
-                   {value,IW,[no_focus,{key,iw}]},
-                   {value,IH,[no_focus,{key,ih}]},
-                   {value,HiValue,[no_focus,{key,hi_value}]},
-                   {value,Hue_p1,[no_focus,{key,hue_p1}]},
-                   {value,Hue_p2,[no_focus,{key,hue_p2}]},
-                   {hframe, [
-                       {text,TextLo,[{range,{0.0,100.0}},{width,5},{hook,fun dlg_default_hook/2},{key,tcut_lo}]},
-                       {custom,?LINE_HEIGHT-2,?LINE_HEIGHT,fun lo_range_preview/5},
-                       {hframe,[
-                          LoSliderM],[{key,frm_lom},{hook,fun dlg_default_hook/2}]},
-                       {hframe,[
-                          LoSliderC],[{key,frm_loc},{hook,fun dlg_default_hook/2}]} ]
-                   },
-                   {hframe, [
-                       {text,TextHi,[{range,{0.0,100.0}},{width,5},{hook,fun dlg_default_hook/2},{key,tcut_hi}]},
-                       {custom,?LINE_HEIGHT-2,?LINE_HEIGHT,fun hi_range_preview/5},
-                       {hframe,[
-                          HiSliderM],[{key,frm_him},{hook,fun dlg_default_hook/2},layout]},
-                       {hframe,[
-                          HiSliderC],[{key,frm_hic},{hook,fun dlg_default_hook/2},layout]} ]
-                   } ]
-                } ]
-              } ]
-           },
-           {hframe,[
-              {?__(17,"Use minor height as ground value"),false,[{key,gv}]}]
-           },
+                    {value,false,[{key,rebuild}]},
+                    {value,IW,[{key,iw}]},
+                    {value,IH,[{key,ih}]},
+                    {value,HiValue,[{key,hi_value}]},
+                    {hframe, [
+                        {text,TextLo,[{range,{0.001,100.0}},{width,5},{hook,fun dlg_default_hook/3},{key,tcut_lo}]},
+                        {custom_gl,?LINE_HEIGHT-2,?LINE_HEIGHT,fun lo_range_preview/2,[{key,prwLo}]},
+                        {hframe, [
+                            {slider,[{color,hue},{key,scut_lo_c},{value,SliderLoC},{hook,fun dlg_default_hook/3}]}
+                        ],[{key,pnlScutLoC},{margin,false},{show,HiValue=:=?MAX_HUE_VALUE}]},
+                        {hframe, [
+                            {slider,[{color,val},{key,scut_lo_m},{value,SliderLoM},{hook,fun dlg_default_hook/3}]}
+                        ],[{key,pnlScutLoM},{margin,false},{show,HiValue=:=?MAX_RGB_VALUE}]}
+                    ], [{key,pnlCutLo}]},
+                    {hframe, [
+                        {text,TextHi,[{range,{0.001,100.0}},{width,5},{hook,fun dlg_default_hook/3},{key,tcut_hi}]},
+                        {custom_gl,?LINE_HEIGHT-2,?LINE_HEIGHT,fun hi_range_preview/2,[{key,prwHi}]},
+                        {hframe, [
+                            {slider,[{color,hue},{key,scut_hi_c},{value,SliderHiC},{hook,fun dlg_default_hook/3}]}
+                        ],[{key,pnlScutHiC},{margin,false},{show,HiValue=:=?MAX_HUE_VALUE}]},
+                        {hframe, [
+                            {slider,[{color,val},{key,scut_hi_m},{value,SliderHiM},{hook,fun dlg_default_hook/3}]}
+                        ],[{key,pnlScutHiM},{margin,false},{show,HiValue=:=?MAX_RGB_VALUE}]}
+                    ], [{key,pnlCutHi}]}
+                ]}
+              ]}
+           ]},
+           {label_column,[
+              {?__(17,"Use minor height as ground value"), {"",false,[{key,gv}]}}
+           ]},
            separator,
            {hframe,[
-              {?__(18,"Bottom faces"),Bf,[{key,bf}]},
-              {?__(19,"Side faces"),Sf,[{key,sf}]},
-              {?__(22,"Hard edges"),He,[{key,he}]}]},
+              {?__(18,"Bottom faces"),Bf,[{key,bf}]}, panel,
+              {?__(19,"Side faces"),Sf,[{key,sf}]}, panel,
+              {?__(22,"Hard edges"),He,[{key,he}]}
+           ]},
            separator,
            {hframe,[
-              {?__(24,"Set vertex color"),Vc,[{key,vc},{hook,fun dlg_default_hook/2}]}]},
+              {?__(24,"Set vertex color"),Vc,[{key,vc},{hook,fun dlg_default_hook/3}]}
+           ]},
            {vframe,[
              {hframe,[
                 {label,?__(4,"Color ramp")},
-                {menu,cr_build_menu(),Preset,[{key,cr_preset},{hook,fun dlg_default_hook/2},layout]},
+                {menu,cr_build_menu(),Preset,[{key,cr_preset},{hook,fun dlg_default_hook/3}]},
                 {hframe,[
                   {text,"",[{width,10},{key,sv_name}]},
                   {button,?__(27,"Save..."),done,[{key,sv},{hook,dlg_rebuild_hook()}]}
-                  ],[{key,frm_sv},{hook,fun dlg_default_hook/2},layout]},
+                ],[{key,frm_sv},{hook,fun dlg_default_hook/3}]},
                 {hframe,[
                   {button,?__(28,"Delete..."),done,[{key,del},{hook,dlg_rebuild_hook()}]}
-                  ],[{key,frm_del},{hook,fun dlg_default_hook/2},layout]}],
-               [{hook,dlg_disable_hook(vc,false)}]}]},
+                ],[{key,frm_del},{hook,fun dlg_default_hook/3}]}
+%%             ],[{hook,dlg_disable_hook(vc,false)}]}
+             ],[{margin,false}]}
+           ],[{key,pnlColRamp},{hook,fun dlg_default_hook/3}]},
+           {value,Cr,[{key,cr}]},
+%%           {hframe,[
+%%              {vframe,[
+%%                {dashboard,Cr,?CR_WIDTH,?CR_HEIGHT,fun color_ramp_handle/2,
+%%                    [{info, wings_msg:join([?__(29,"L: Set a color key"),?__(30,"L+[CTRL]: Moves the color key.")])},
+%%                    {key,cr},layout]}]}],
+%%             [{hook,dlg_disable_hook(vc,false)}]},
            {hframe,[
-              {vframe,[
-                {dashboard,Cr,?CR_WIDTH,?CR_HEIGHT,fun color_ramp_handle/2,
-                    [{info, wings_msg:join([?__(29,"L: Set a color key"),?__(30,"L+[CTRL]: Moves the color key.")])},
-                    {key,cr},layout]}]}],
-             [{hook,dlg_disable_hook(vc,false)}]},
-           {hframe,[
-              {?__(25,"Make texture"),Mt,[{key,mt},{hook,dlg_disable_hook(vc,false)}]},
-              {menu,gen_tx_sizes(),TexSz,[{key,texsz},{hook,dlg_disable_hook(mt,false)}]}],
-             [{hook,dlg_disable_hook(vc,false)}]}
-           ],
-        [
-           {title,?__(14,"Parameters")}]}]
-    } ].
+%%              {?__(25,"Make texture"),Mt,[{key,mt},{hook,dlg_disable_hook(vc,false)}]},
+%%              {menu,gen_tx_sizes(),TexSz,[{key,texsz},{hook,dlg_disable_hook(mt,false)}]}],
+%%            [{hook,dlg_disable_hook(vc,false)}]}
+              {?__(25,"Make texture"),Mt,[{key,mt}]},
+              {menu,gen_tx_sizes(),TexSz,[{key,texsz}]}],
+             [{key,pnlMkTxt}]}
+        ],[{title,?__(14,"Parameters")}]
+    }].
 
-dlg_default_hook(Event, Params) ->
-    case Event of
-    update ->
-        {Var,_,Val,Store}=Params,
-        #img_info{w=W,h=H}=wings_pref:get_value(heightmap_img_info),
-        Store1=case Var of
+dlg_default_hook(Key, Value, Fields) ->
+    io:format("dlg_default_hook - Key: ~p\n",[Key]),
+    #img_info{w=W,h=H}=wings_pref:get_value(heightmap_img_info),
+    case Key of
         vc ->
             %% It forces the color ramp be redrawn.
             %% I didn't discover why just this field doesn't produce the geom update.
-            wings_wm:send(wings_wm:this(),redraw),
-            gb_trees:update(Var,Val,Store);
-        cr_preset ->
-            wings_wm:send(wings_wm:this(),redraw),
-            gb_trees:update(Var,Val,update_color_keys(Var,Val,Store));
+            wings_dialog:enable(vc,false,Fields),
+            wings_dialog:enable(pnlColRamp,false,Fields),
+            wings_dialog:enable(pnlMkTxt,false,Fields);
+%%            wings_wm:send(wings_wm:this(),redraw);
+%%        cr_preset ->
+%%            wings_wm:send(wings_wm:this(),redraw),
+%%            wings_dialog:set_value(Key,Value,update_color_keys(Key,Value,Fields));
         density ->
-            update_range_density(Val,Store,W,H);
+            Fields0 = update_range_density(Value,Fields,W,H),
+            wings_dialog:update(prwDnsity,Fields0);
         ar ->
-            gb_trees:update(Var,Val,calc_aspect_ratio(W,H,gb_trees:get(ws,Store),Val,Store));
+            wings_dialog:enable(hs,Value=:=false,Fields),
+            calc_aspect_ratio(W,H,Value,wings_dialog:get_value(ws,Fields),Fields);
         ws ->
-            gb_trees:update(Var,Val,calc_aspect_ratio(W,H,Val,gb_trees:get(ar,Store),Store));
+            calc_aspect_ratio(W,H,wings_dialog:get_value(ar,Fields),Value,Fields);
         tcut_lo ->
-            update_range_slider(Var,Val,Store,gb_trees:get(hi_value,Store));
+            update_range_slider(Key,Value,Fields);
         tcut_hi ->
-            update_range_slider(Var,Val,Store,gb_trees:get(hi_value,Store));
-        scut_lo_m ->
-            gb_trees:update(Var,Val,update_range_text(Var,Val,Store,mono));
-        scut_hi_m ->
-            gb_trees:update(Var,Val,update_range_text(Var,Val,Store,mono));
-        scut_lo_c ->
-            gb_trees:update(Var,Val,update_range_text(Var,Val,Store,color));
-        scut_hi_c ->
-            gb_trees:update(Var,Val,update_range_text(Var,Val,Store,color));
+            update_range_slider(Key,Value,Fields);
+        Key when Key=:=scut_lo_m; Key=:=scut_hi_m ->
+            update_range_text(Key,Value,Fields,mono);
+        Key when Key=:=scut_lo_c; Key=:=scut_hi_c ->
+            update_range_text(Key,Value,Fields,color);
         _ ->
-            gb_trees:update(Var,Val,Store)
-        end,
-        {store,Store1};
-    is_minimized ->
-        {Var,_I,Store}=Params,
-        case Var of
-            frm_sv -> gb_trees:get(cr_preset, Store) =/= custom;
-            frm_del -> gb_trees:get(cr_preset, Store) =:= custom;
-            frm_lom -> gb_trees:get(hi_value, Store) =:= ?MAX_HUE_VALUE;
-            frm_loc -> gb_trees:get(hi_value, Store) =:= ?MAX_RGB_VALUE;
-            frm_him -> gb_trees:get(hi_value, Store) =:= ?MAX_HUE_VALUE;
-            frm_hic -> gb_trees:get(hi_value, Store) =:= ?MAX_RGB_VALUE;
-            _ -> void
-        end;
-    _ ->
-        void
-    end.
-
-%dlg_disable_hook(V) ->
-%    fun (is_disabled, {_Var,_I,Store}) ->
-%          case V of
-%              mode -> gb_trees:get(mode, Store)=/=block;
-%              _ ->
-%                  false
-%          end;
-%      (_, _) ->
-%          void
-%    end.
-
-dlg_disable_hook(V,Inverse) ->
-    fun (is_disabled, {_Var,_I,Store}) ->
-          case Inverse of
-              true -> gb_trees:get(V, Store);
-              _ ->
-                  not gb_trees:get(V, Store)
-          end;
-      (_, _) ->
-          void
+            ok
     end.
 
 dlg_rebuild_hook() ->
-    fun(update, {Var,_,_,Store}) ->
-        case Var of
-            sv ->
-                case cr_save(gb_trees:get(sv_name,Store),gb_trees:get(cr,Store)) of
-                    none -> keep;
-                    NewId ->
-                        Store0=gb_trees:update(rebuild,true,Store),
-                        {done,gb_trees:update(cr_preset,NewId,Store0)}
-                end;
-            del ->
-                cr_delete(gb_trees:get(cr_preset,Store)),
-                Store0=gb_trees:update(rebuild,true,Store),
-                {done,gb_trees:update(cr_preset,custom,Store0)};
-            _ ->
-                keep
-        end;
-      (is_disable,_) -> false;
-      (_, _) ->
-          void
+    io:format("dlg_rebuild_hook\n",[]),
+    fun(Key,_Value,_Fields) ->
+        io:format("dlg_rebuild_hook - Key: ~p\n",[Key]),
+        ok
+%%        case Key of
+%%            sv ->
+%%                case cr_save(wings_dialog:get_value(sv_name,Fields),wings_dialog:get_value(cr,Fields)) of
+%%                    none -> ok;
+%%                    NewId ->
+%%                        Fields0=wings_dialog:set_value(rebuild,true,Fields),
+%%                        wings_dialog:set_value(cr_preset,NewId,Fields0)
+%%                end;
+%%            del ->
+%%                cr_delete(wings_dialog:get_value(cr_preset,Fields)),
+%%                Fields0=wings_dialog:get_value(rebuild,true,Fields),
+%%                wings_dialog:set_value(cr_preset,custom,Fields0);
+%%            _ ->
+%%                ok
+%%        end
     end.
 
 %%%
@@ -501,60 +500,60 @@ cr_build_menu() ->
         Acc++[{Name,Id}]
     end, [], [cr_custom()]++Presets).
 
-cr_save(Name0,#cr{color_keys=ColKeys}) ->
-    {IdC,Custom,_}=cr_custom(),
-    case string:strip(Name0) of
-        "" -> none;
-        Custom -> none;
-        Name ->
-            case list_to_atom(Name) of
-                IdC -> none;
-                NewId ->
-                    Presets1=cr_load(),
-                    Presets0=case lists:keytake(NewId,1,Presets1) of
-                        {value,_,Lst} -> Lst;
-                        _ -> Presets1
-                    end,
-                    New=[{NewId,Name,ColKeys}],
-                    cr_save_1(lists:keysort(2, Presets0++New)),
-                    NewId
-            end
-    end.
+%%cr_save(Name0,#cr{color_keys=ColKeys}) ->
+%%    {IdC,Custom,_}=cr_custom(),
+%%    case string:strip(Name0) of
+%%        "" -> none;
+%%        Custom -> none;
+%%        Name ->
+%%            case list_to_atom(Name) of
+%%                IdC -> none;
+%%                NewId ->
+%%                    Presets1=cr_load(),
+%%                    Presets0=case lists:keytake(NewId,1,Presets1) of
+%%                        {value,_,Lst} -> Lst;
+%%                        _ -> Presets1
+%%                    end,
+%%                    New=[{NewId,Name,ColKeys}],
+%%                    cr_save_1(lists:keysort(2, Presets0++New)),
+%%                    NewId
+%%            end
+%%    end.
+%%
+%%cr_save_1(Presets) ->
+%%    Format=case os:type() of
+%%        {win32,_} -> "~p.\r\n";
+%%        _ -> "~p.\n"
+%%    end,
+%%    Str=lists:map(fun(S) ->
+%%        io_lib:format(Format,[S])
+%%    end,Presets),
+%%    catch file:write_file(cr_file_name(), Str).
+%%
+%%cr_delete(Id) ->
+%%    Presets=cr_load(),
+%%    case lists:keyfind(Id,1,Presets) of
+%%        {Id,_,_} ->
+%%            cr_save_1(lists:keydelete(Id,1,Presets));
+%%        _ -> ok
+%%    end,
+%%    keep.
 
-cr_save_1(Presets) ->
-    Format=case os:type() of
-        {win32,_} -> "~p.\r\n";
-        _ -> "~p.\n"
-    end,
-    Str=lists:map(fun(S) ->
-        io_lib:format(Format,[S])
-    end,Presets),
-    catch file:write_file(cr_file_name(), Str).
-
-cr_delete(Id) ->
-    Presets=cr_load(),
-    case lists:keyfind(Id,1,Presets) of
-        {Id,_,_} ->
-            cr_save_1(lists:keydelete(Id,1,Presets));
-        _ -> ok
-    end,
-    keep.
-
-cr_read(Id) ->
-    Presets=case file:consult(cr_file_name()) of
-        {ok,CRs} -> CRs;
-        _ -> [cr_custom()]
-    end,
-    case lists:keyfind(Id,1,Presets) of
-        {Id,_,ColKeys} -> ColKeys;
-        _ ->
-            #cr{color_keys=ColKeys}=#cr{},
-            ColKeys
-    end.
+%%cr_read(Id) ->
+%%    Presets=case file:consult(cr_file_name()) of
+%%        {ok,CRs} -> CRs;
+%%        _ -> [cr_custom()]
+%%    end,
+%%    case lists:keyfind(Id,1,Presets) of
+%%        {Id,_,ColKeys} -> ColKeys;
+%%        _ ->
+%%            #cr{color_keys=ColKeys}=#cr{},
+%%            ColKeys
+%%    end.
 
 cr_file_name() ->
     Dir=case new_pref_file() of
-        none -> wings_prefs:get_value(current_directory);
+        none -> wings_pref:get_value(current_directory);
         PrefFile ->	filename:dirname(PrefFile)
     end,
     Dir++"/color_ramp.txt".
@@ -569,8 +568,8 @@ cr_custom() ->
 getkpixel(W,H) ->
     Kp=W*H,
     case Kp>1000 of
-    true -> integer_to_list(trunc(Kp/1000))++?__(1,"K pixels");
-    false -> integer_to_list(Kp)++?__(2," pixels")
+        true -> integer_to_list(trunc(Kp/1000))++?__(1,"K pixels");
+        false -> integer_to_list(Kp)++?__(2," pixels")
     end.
 
 init_density(W,H) ->
@@ -579,302 +578,393 @@ init_density(W,H) ->
         _  -> ?START_DENSITY
     end.
 
-calc_aspect_ratio(W,H,Ws,Calc,Store) when Calc ->
-    gb_trees:update(hs, H*(Ws/W), Store);
-calc_aspect_ratio(_,_,_,_,Store) ->
-    Store.
+calc_aspect_ratio(W,H,Calc,Ws,Fields) when Calc ->
+    wings_dialog:set_value(hs, H*(Ws/W), Fields);
+calc_aspect_ratio(_,_,_,_,Fields) ->
+    Fields.
 
-update_color_keys(_,Val,Store) ->
-    ColKeys=cr_read(Val),
-    Cr=gb_trees:get(cr,Store),
-    gb_trees:update(cr,Cr#cr{name=Val,color_keys=ColKeys},Store).
+%%update_color_keys(_, Value, Fields) ->
+%%    io:format("update_color_keys\n",[]),
+%%    ColKeys=cr_read(Value),
+%%    Cr=wings_dialog:get_value(cr,Fields),
+%%    wings_dialog:set_value(cr,Cr#cr{name=Value,color_keys=ColKeys},Fields).
 
-update_range_density(Val,Store,W,H) ->
-    Den=Val/100.0,
+update_range_density(Value0,Fields0,W,H) ->
+    io:format("update_range_density\n",[]),
+    Den=Value0/100.0,
     MinDim=min(W,H),
-    Val0=if trunc(Den * MinDim) =<3 ->
+    Value=if trunc(Den * MinDim) =<3 ->
         3/MinDim*100.0;
-    true -> Val
+    true -> Value0
     end,
-    Store1=gb_trees:update(iw,trunc(W*Val0/100),Store),
-    Store0=gb_trees:update(ih,trunc(H*Val0/100),Store1),
-    gb_trees:update(density,Val0,Store0).
+    Fields = wings_dialog:set_value(iw,trunc(W*Value/100),Fields0),
+    wings_dialog:set_value(ih,trunc(H*Value/100),Fields).
 
-update_range_slider(Var,Val,Store,MaxValue) ->
-    Var0=if Var=:=tcut_lo ->
-        case MaxValue of
-            ?MAX_HUE_VALUE -> scut_lo_c;
-            _ -> scut_lo_m
-        end;
-    true ->
-        case MaxValue of
-            ?MAX_HUE_VALUE -> scut_hi_c;
-            _ -> scut_hi_m
-        end
-    end,
-    if MaxValue=:=?MAX_HUE_VALUE ->  % hue slider
-        Val0=(100.0-Val)/100.0*?MAX_HUE_VALUE;
-    true ->  % val slider
-        Val0=Val/100.0
-    end,
-    gb_trees:update(Var,Val,gb_trees:update(Var0,Val0,Store)).
+update_range_slider(Key0,Value,Fields) ->
+    MaxValue = wings_dialog:get_value(hi_value,Fields),
+    Key =
+        if Key0=:=tcut_lo ->
+            case MaxValue of
+                ?MAX_HUE_VALUE -> scut_lo_c;
+                _ -> scut_lo_m
+            end;
+        true ->
+            case MaxValue of
+                ?MAX_HUE_VALUE -> scut_hi_c;
+                _ -> scut_hi_m
+            end
+        end,
+    Color = build_color(?MAX_HUE_VALUE,Value/100.0,1.0,1.0),
+    Fields0 = wings_dialog:set_value(Key,Color,Fields),
+    update_range_preview(Fields0).
 
-update_range_text(Var,Val,Store,mono) ->
-    Var0=if Var=:=scut_lo_m ->
+update_range_text(Key0,Value,Fields,mono) ->
+    Key=if Key0=:=scut_lo_m ->
         tcut_lo;
     true ->
         tcut_hi
     end,
-    H=gb_trees:get(hue_p1,Store),
-    S=gb_trees:get(hue_p2,Store),
-    V=Val,
-    Val0=Val*100.0,
-    Color=wings_color:hsv_to_rgb(H,S,V),
-    Store0=gb_trees:update(Var0,Val0,Store),
-    gb_trees:update(Var,Color,Store0);
-update_range_text(Var,Val,Store,color) ->
-    Var0=if Var=:=scut_lo_c ->
+    {H,_S,_V} = Value,
+    Fields0 = wings_dialog:set_value(Key,(?MAX_RGB_VALUE-H)/?MAX_RGB_VALUE*100.0,Fields),
+    update_range_preview(Fields0);
+update_range_text(Key0,Value0,Fields,color) ->
+    Key=if Key0=:=scut_lo_c ->
         tcut_lo;
     true ->
         tcut_hi
     end,
-    H=Val,
-    S=gb_trees:get(hue_p1,Store),
-    V=gb_trees:get(hue_p2,Store),
-    Val0=((?MAX_HUE_VALUE-Val)/?MAX_HUE_VALUE)*100.0,
-    Color=wings_color:hsv_to_rgb(H,S,V),
-    Store0=gb_trees:update(Var0,Val0,Store),
-    gb_trees:update(Var,Color,Store0).
+    {H,_S,_V} = wings_color:rgb_to_hsv(Value0),
+    Fields0 = wings_dialog:set_value(Key,H/?MAX_HUE_VALUE*100,Fields),
+    update_range_preview(Fields0).
 
-lo_range_preview(X,Y,W,_,Store) ->
-    case gb_trees:get(hi_value,Store) of
-        ?MAX_HUE_VALUE -> range_preview(X,Y,W,Store,scut_lo_c);
-        _ -> range_preview(X,Y,W,Store,scut_lo_m)
+update_range_preview(Fields) ->
+    lists:map(fun(Ctrl) ->
+                PrwCanvas = wings_dialog:get_widget(Ctrl,Fields),
+                wxGLCanvas:refresh(PrwCanvas),
+                wxGLCanvas:update(PrwCanvas)
+            end, [prwLo,prwHi]),
+    Fields.
+
+lo_range_preview(Canvas,Fields) ->
+    case wings_dialog:get_value(hi_value,Fields) of
+        ?MAX_HUE_VALUE -> range_preview(Canvas,Fields,scut_lo_c);
+        _ -> range_preview(Canvas,Fields,scut_lo_m)
     end.
 
-hi_range_preview(X,Y,W,_,Store) ->
-    case gb_trees:get(hi_value,Store) of
-        ?MAX_HUE_VALUE -> range_preview(X,Y,W,Store,scut_hi_c);
-        _ -> range_preview(X,Y,W,Store,scut_hi_m)
+hi_range_preview(Canvas,Fields) ->
+    case wings_dialog:get_value(hi_value,Fields) of
+        ?MAX_HUE_VALUE -> range_preview(Canvas,Fields,scut_hi_c);
+        _ -> range_preview(Canvas,Fields,scut_hi_m)
     end.
 
-range_preview(X,Y,W,Store,Type) ->
-    Hue_p0=gb_trees:get(Type,Store),
-    #img_info{bpp=Bpp}=wings_pref:get_value(heightmap_img_info),
-    if Bpp>2 ->  % hue slider
-        Hue=Hue_p0,
-        Sat=gb_trees:get(hue_p1,Store),
-        Val=gb_trees:get(hue_p2,Store);
-    true ->  % val slider
-        Hue=gb_trees:get(hue_p1,Store),
-        Sat=gb_trees:get(hue_p2,Store),
-        Val=Hue_p0
-    end,
-    Color=wings_color:hsv_to_rgb(Hue,Sat,Val),
-    wings_io:raised_rect(X, Y+2, W, ?LINE_HEIGHT-1, Color).
+range_preview(Canvas,Fields,Type) ->
+    {W,H} = wxWindow:getSize(Canvas),
+    {R,G,B} = wings_dialog:get_value(Type,Fields),
+    Box = [{1,1},{W,1},{W,H},{1,H},{1,1}],
+    gl:pushAttrib(?GL_ALL_ATTRIB_BITS),
+    gl:viewport(0, 0, W, H),
+    gl:clear(?GL_COLOR_BUFFER_BIT bor  ?GL_DEPTH_BUFFER_BIT),
+    gl:matrixMode(?GL_PROJECTION),
+    gl:loadIdentity(),
+    gl:ortho(0, W, H, 0, -10, 10),
 
-density_preview(X,Y,_,_,Store) ->
-    Iw=gb_trees:get(iw,Store),
-    Ih=gb_trees:get(ih,Store),
+    gl:color4f(R,G,B,1.0),
+    draw_rect(1,1,W,H),
+
+    wings_io:set_color({0.2,0.2,0.2}),
+    gl:lineWidth(1.0),
+    gl:'begin'(?GL_LINE_STRIP),
+      [gl:vertex2i(X, Y) || {X,Y} <- Box],
+    gl:'end'(),
+    gl:popAttrib().
+%%    Brush = wxBrush:new(Color),
+%%    DC = case os:type() of
+%%             {win32, _} -> %% Flicker on windows
+%%                 BDC = wx:typeCast(wxBufferedPaintDC:new(Canvas), wxPaintDC),
+%%                 wxDC:setBackground(BDC, Brush),
+%%                 wxDC:clear(BDC),
+%%                 BDC;
+%%             _ ->
+%%                 wxPaintDC:new(Canvas)
+%%         end,
+%%    wxPaintDC:setBrush(DC, Brush),
+%%    wxPaintDC:floodFill(DC, {0, 0}, Color),
+%%    wxPaintDC:drawRectangle(DC, {0, 0}, {W, ?LINE_HEIGHT-1}),
+%%    wxBrush:destroy(Brush),
+%%    wxPaintDC:destroy(DC).
+
+density_preview(Canvas,Fields) ->
+    {R,G,B,A} = wxSystemSettings:getColour(?wxSYS_COLOUR_3DFACE),
+    {W,H} = wxWindow:getSize(Canvas),
+    Iw=wings_dialog:get_value(iw,Fields),
+    Ih=wings_dialog:get_value(ih,Fields),
     Dstr=io_lib:format("~wx~w (~s)", [Iw,Ih,getkpixel(Iw,Ih)]),
+
+    gl:pushAttrib(?GL_ALL_ATTRIB_BITS),
+    gl:viewport(0, 0, W, H),
+    gl:clearColor(R,G,B,A),  %% Set the cleared screen colour to black
+    gl:clear(?GL_COLOR_BUFFER_BIT bor ?GL_DEPTH_BUFFER_BIT),
+    gl:matrixMode(?GL_PROJECTION),
+    gl:loadIdentity(),
+    gl:ortho(0, W, H, 0, -10, 10),
     gl:color3fv(wings_pref:get_value(dialog_text)),
-    wings_io:text_at(X, Y+?LINE_HEIGHT-1, Dstr).
+    wings_io:unclipped_text(0, ?LINE_HEIGHT-1, Dstr),
+    gl:popAttrib().
 
-%% process the color_ramp field events
-image_handle({doubleclick,_X,_Y}, {_Var,_I,_Val,_Store,_ClientRect}=_Params) ->
-    Owner = wings_wm:this(),
-    ImgDir = wings_pref:get_value(image_repository, wings_pref:get_value(current_directory)),
-    Ps = [{extensions,wpa:image_formats()},{directory,ImgDir}],
-    wpa:import_filename(Ps, fun(N) ->
-        wings_wm:send(Owner,{load_image,{N}})
-    end);
-image_handle({load_image,{FileName}}, {_Var,_I,_Val,Store0,_ClientRect}=_Params) ->
-    case read_image(FileName) of
-    error -> keep;
-    {SrcInfo,Image0} ->
-        wings_wm:message(?__(1,"Resizing the image if needed...")),
-        case maybe_resize(Image0) of
-        {error,GlErr} ->
-            wpa:error_msg(?__(2,"The image cannot be resized.\nFile:") ++ "\"~s\"\n" ++
-                          ?__(3,"GLU Error:") ++ " ~p - ~s\n",
-                  [FileName,GlErr, glu:errorString(GlErr)]);
-        #e3d_image{width=W0,height=H0}=Image ->
-            #img_info{prev_info={Id_Img_Preview,_,_}}=wings_pref:get_value(heightmap_img_info),
-            wings_image:delete(Id_Img_Preview),
-            Density=init_density(W0,H0),
-            process_elevation(SrcInfo,Image,Density),
-            #img_info{prev_info=PreviewInfo,w=W,h=H,hmin=MinE,hmax=MaxE,bpp=Bpp}=wings_pref:get_value(heightmap_img_info),
-            {LoCut,HiCut}={?MAX_HUE_VALUE-MinE*?MAX_HUE_VALUE,?MAX_HUE_VALUE-MaxE*?MAX_HUE_VALUE},
-            Fxz=get_factor(W,H,10.0),
-            {HiValue,{Hue_p1,Hue_p2}}=if Bpp > 2 ->
-                {?MAX_HUE_VALUE,?HUE_PARAMS};
-              true ->
-                {?MAX_RGB_VALUE,?RGB_PARAMS}
-            end,
-            TextLo=MinE*100.0,
-            TextHi=MaxE*100.0,
-            Fields=[{ws,W*Fxz},{hs,H*Fxz},{es,1.0},{prw,PreviewInfo},{scut_lo_c,LoCut},
-                    {scut_hi_c,HiCut},{scut_lo_m,MinE},{scut_hi_m,MaxE},{hue_p1,Hue_p1},
-                    {hue_p2,Hue_p2},{tcut_lo,TextLo},{tcut_hi,TextHi},{hi_value,HiValue}],
-            Store=lists:foldr(fun({Var0,Value0}, Sto) ->
-                gb_trees:update(Var0,Value0,Sto)
-            end, update_range_density(Density,Store0,W,H), Fields),
-            {layout,Store}
-        end
-    end;
-image_handle(redraw, {Val,Rect,_Active,_DisEnabled}=_Params) ->
-    img_preview(Rect,Val);
-image_handle(_Ev,_) -> void.
-
-img_preview({_,_,_,_},{none,_,_}) -> ok;
-img_preview({X,Y,W,H},{Id_Img_Preview,W0,H0}) ->
-    Dx=(W-W0)div 2,
-    Dy=(H-H0)div 2,
-    gl:enable(?GL_TEXTURE_2D),
-    wings_image:draw_preview(X+Dx-1,Y-H+Dy+1,W0,H0,Id_Img_Preview),
-    gl:disable(?GL_TEXTURE_2D).
-
-prw_info(X,Y,_,_,_Store) ->
+prw_info(Canvas, _Fields) ->
+    {R,G,B,A} = wxSystemSettings:getColour(?wxSYS_COLOUR_3DFACE),
+%%    io:format("prw_info\n  => BkGrd: ~p\n",[{R,G,B,A}]),
+    {W,H} = wxWindow:getSize(Canvas),
     #img_info{src_info=SrcInfo,w=W0,h=H0,bpp=Bpp,hmin=MinE,hmax=MaxE}=wings_pref:get_value(heightmap_img_info),
     {_,WSrc,HSrc,BppSrc}=SrcInfo,
     case {WSrc,HSrc} of
-    {W0,H0} ->
-        Wstr=" ",
-        Hstr=" ",
-        Bstr=" ";
-    {_,_} ->
-        Wstr=io_lib:format(" (~w)",[WSrc]),
-        Hstr=io_lib:format(" (~w)",[HSrc]),
-        Bstr=io_lib:format(" (~w)",[BppSrc])
+        {W0,H0} ->
+            Wstr=" ",
+            Hstr=" ",
+            Bstr=" ";
+        {_,_} ->
+            Wstr=io_lib:format(" (~w)",[WSrc]),
+            Hstr=io_lib:format(" (~w)",[HSrc]),
+            Bstr=io_lib:format(" (~w)",[BppSrc])
     end,
+    gl:pushAttrib(?GL_ALL_ATTRIB_BITS),
+    gl:viewport(0, 0, W, H),
+    gl:clearColor(R,G,B,A),  %% Set the cleared screen colour to black
+    gl:clear(?GL_COLOR_BUFFER_BIT bor ?GL_DEPTH_BUFFER_BIT),
+    gl:matrixMode(?GL_PROJECTION),
+    gl:loadIdentity(),
+    gl:ortho(0, W, H, 0, -10, 10),
+    gl:color4f(R,G,B,1.0),
+    draw_rect(1,1,W,H),
     gl:color3fv(wings_pref:get_value(dialog_text)),
-    wings_io:text_at(X, Y+?CHAR_HEIGHT, io_lib:format(?__(1,"Width:")++" ~w~s",[W0,Wstr])),
-    wings_io:text_at(X, Y+?CHAR_HEIGHT*2, io_lib:format(?__(2,"Height:")++" ~w~s",[H0,Hstr])),
-    wings_io:text_at(X, Y+?CHAR_HEIGHT*3, io_lib:format(?__(3,"Channels:")++" ~w~s",[Bpp,Bstr])),
-    wings_io:text_at(X, Y+?CHAR_HEIGHT*4, io_lib:format(?__(20,"Min Value:")++" ~.3f%",[MinE*100.0])),
-    wings_io:text_at(X, Y+?CHAR_HEIGHT*5, io_lib:format(?__(21,"Max Value:")++" ~.3f%",[MaxE*100.0])).
+    wings_io:unclipped_text(0, ?CHAR_HEIGHT, io_lib:format(" ~w~s",[W0,Wstr])),
+    wings_io:unclipped_text(0, ?CHAR_HEIGHT*2, io_lib:format(" ~w~s",[H0,Hstr])),
+    wings_io:unclipped_text(0, ?CHAR_HEIGHT*3, io_lib:format(" ~w~s",[Bpp,Bstr])),
+    wings_io:unclipped_text(0, ?CHAR_HEIGHT*4, io_lib:format(" ~.3f%",[MinE*100.0])),
+    wings_io:unclipped_text(0, ?CHAR_HEIGHT*5, io_lib:format(" ~.3f%",[MaxE*100.0])),
+    gl:popAttrib().
 
-%% process the color_ramp field events
-color_ramp_handle(#mousemotion{x=X,y=Y,state=Bst}, {Var,_I,Val,Store0,_ClientRect}=_Params) ->
-    #cr{color_keys=ColKeys0,sel_key=SelKey0}=Val,
-    case SelKey0 of
-        none -> void;
-        _ ->
-            Key=X-?CR_START,
-            case hit_color_ramp(X,Y) of
-                true when 0 < Key, Key < ?CR_W ->
-                    if (Bst band ?SDL_BUTTON_LMASK) =/= 0 ->
-                        RGB=orddict:fetch(SelKey0,ColKeys0),
-                        ColKeys1=orddict:erase(SelKey0,ColKeys0),
-                        ColKeys=orddict:store(Key,RGB,ColKeys1),
-                        Store=gb_trees:update(Var,Val#cr{name=custom,sel_key=Key,color_keys=ColKeys},Store0),
-                        {store,gb_trees:update(cr_preset,custom,Store)};
-                      true -> void
-                    end;
-                _ -> void
-            end
-    end;
-color_ramp_handle(#mousebutton{x=X,y=Y,button=1,state=?SDL_PRESSED}, {Var,_I,Val,Store0,_ClientRect}=_Params) ->
-    case hit_color_ramp(X,Y) of
-    true ->
-        Key=X-?CR_START,
-        case wings_io:is_modkey_pressed(?CTRL_BITS) of
-            false ->
-                ColRamp0=wings_pref:get_value(heightmap_color_ramp),
-                RGB0=array:get(Key,ColRamp0),
-                Owner = wings_wm:this(),
-                wings_color:choose(RGB0, fun(RGB) ->
-                    wings_wm:send(Owner,{set_color,{Key,RGB}})
-                end);
-            _ when 0 < Key, Key < ?CR_W ->
-                #cr{color_keys=ColKeys}=Val,
-                SelKey=case orddict:find(Key, ColKeys) of
-                    {ok,_} -> Key;
-                    _ -> none
-                end,
-                Store=gb_trees:update(Var,Val#cr{name=custom,sel_key=SelKey},Store0),
-                {store,gb_trees:update(cr_preset,custom,Store)};
-            _ -> void
-        end;
-    _ -> void
-    end;
-color_ramp_handle(#mousebutton{button=1,state=?SDL_RELEASED}, {Var,_I,Val,Store,_ClientRect}=_Params) ->
-    {store,gb_trees:update(Var,Val#cr{sel_key=none},Store)};
-color_ramp_handle({set_color,{Idx,RGB}}, {Var,_I,Val,Store0,_ClientRect}=_Params) ->
-    #cr{color_keys=ColKeys0}=Val,
-    Val0=Val#cr{name=custom,color_keys=orddict:store(Idx,RGB,ColKeys0)},
-    build_color_ramp(Val0),
-    Store=gb_trees:update(Var,Val0,Store0),
-    wings_wm:send(wings_wm:this(),redraw),
-    {store,gb_trees:update(cr_preset,custom,Store)};
-color_ramp_handle(redraw, {Val,Rect,_Active,_DisEnabled}=_Params) ->
-    #cr{sel_key=SelKey,color_keys=ColKeys}=Val,
-    {Xo,Yo,_,_}=Rect,
-    Top=Yo-(?CR_START+?CR_H),
-    Left=Xo+?CR_START,
-    ColRamp=wings_pref:get_value(heightmap_color_ramp),
-    array:foldr(fun(Key, Color, _Acc) ->
-        gl:'begin'(?GL_LINES),
-        gl:color3fv(Color),
-        gl:vertex2f(Left+Key, Yo-?CR_START),
-        gl:vertex2f(Left+Key, Top+1),
-        gl:'end'(),
-        case orddict:is_key(Key,ColKeys) of
-            true ->
-                gl:'begin'(?GL_LINES),
-                gl:color3fv({0.0,0.0,0.0}),
-                gl:vertex2f(Left+Key, Top),
-                gl:vertex2f(Left+Key, Top-2),
-                gl:'end'();
-            _ -> ok
-        end
-    end, [], ColRamp),
-    if SelKey=/=none ->
-        gl:'begin'(?GL_LINE_LOOP),
-        gl:color3fv({0.0,0.0,0.0}),
-        gl:vertex2f(Left+SelKey-1, Yo-?CR_START+1),
-        gl:vertex2f(Left+SelKey, Top),
-        gl:vertex2f(Left+SelKey+1, Yo-?CR_START+1),
-        gl:vertex2f(Left+SelKey+1, Top-1),
-        gl:'end'(),
-        gl:'begin'(?GL_LINES),
-        gl:color3fv(orddict:fetch(SelKey,ColKeys)),
-        gl:vertex2f(Left+SelKey-1, Top-1),
-        gl:vertex2f(Left+SelKey, Yo-?CR_START),
-        gl:'end'();
-    true -> void
-    end;
-color_ramp_handle(_,_) ->
-    void.
+image_preview(Canvas, Fields) ->
+    Parent = wxGLCanvas:getParent(Canvas),
+    {R,G,B,A} = wxWindow:getBackgroundColour(Parent),
+    {W,H} = wxWindow:getSize(Canvas),
+    {Id_Img_Preview,W0,H0} = wings_dialog:get_value(prw,Fields),
+    Dx=(W-W0)div 2,
+    Dy=(H-H0)div 2,
 
-hit_color_ramp(X,Y) when (?CR_START) =< X,
-                        X =< (?CR_START+?CR_W),
-                        (?CR_START) =< Y,
-                        Y =< (?CR_START+?CR_H) -> true;
-hit_color_ramp(_,_) -> false.
+    gl:pushAttrib(?GL_ALL_ATTRIB_BITS),
+    gl:viewport(0, 0, W, H),
+    gl:clearColor(R,G,B,A),  %% Set the cleared screen colour to black
+    gl:clear(?GL_COLOR_BUFFER_BIT bor ?GL_DEPTH_BUFFER_BIT),
+    gl:matrixMode(?GL_PROJECTION),
+    gl:loadIdentity(),
+    gl:ortho(0, W, H, 0, -10, 10),
+    gl:enable(?GL_TEXTURE_2D),
+    draw_image(Dx,Dy,W0,H0,Id_Img_Preview),
+    gl:disable(?GL_TEXTURE_2D),
+    gl:popAttrib().
 
-build_color_ramp(#cr{color_keys=ColKeys1}) ->
-    [Col0|Cols]=orddict:to_list(ColKeys1),
-    {_,KeyCols0}=lists:foldl(fun({Key1,_C1}=Item1, {{Key0,_C0}=Item0,Acc}) ->
-        Acc0=[build_color_ramp_1(Key,Item0,Item1) || Key <- lists:seq(Key0,Key1)],
-        {Item1,Acc++Acc0}
-    end, {Col0,[]}, Cols),
-    KeyCols=lists:foldl(fun({Key,Value}, Acc) ->
-        orddict:store(Key,Value,Acc)
-    end, orddict:new(), KeyCols0),
-    wings_pref:set_value(heightmap_color_ramp, array:from_orddict(KeyCols));
-build_color_ramp(Arg) ->
-    ArgDict = dict:from_list(Arg),
-    build_color_ramp(dict:fetch(cr,ArgDict)).
+draw_image(X, Y, W, H, ImId) ->
+    Ua = 0, Ub = 1,
+    Va = 1, Vb = 0,
+    TxId = wings_image:txid(ImId),
+    gl:bindTexture(?GL_TEXTURE_2D, TxId),
+    gl:'begin'(?GL_QUADS),
+    gl:texCoord2i(Ua, Va),
+    gl:vertex2i(X, Y),
+    gl:texCoord2i(Ua, Vb),
+    gl:vertex2i(X, Y+H),
+    gl:texCoord2i(Ub, Vb),
+    gl:vertex2i(X+W, Y+H),
+    gl:texCoord2i(Ub, Va),
+    gl:vertex2i(X+W, Y),
+    gl:'end'(),
+    gl:bindTexture(?GL_TEXTURE_2D, 0).
 
-build_color_ramp_1(Key, {Key0,C0}, {Key1,C1}) ->
-    Range=Key1-Key0,
-    Cr=e3d_vec:sub(C1,C0),
-    Rf=(Key-Key0)/Range,
-    Cr0=e3d_vec:mul(Cr,Rf),
-    {Key,e3d_vec:add(C0,Cr0)}.
+draw_rect(X,Y,W,H) ->
+    Box = [{X,Y},{W,Y},{W,H},{X,H}],
+    gl:'begin'(?GL_QUADS),
+      [gl:vertex2i(X0, Y0) || {X0,Y0} <- Box],
+    gl:'end'().
+
+%%%% process the color_ramp field events
+%%image_handle({doubleclick,_X,_Y}, {_Var,_I,_Val,_Store,_ClientRect}=_Params) ->
+%%    Owner = wings_wm:this(),
+%%    ImgDir = wings_pref:get_value(image_repository, wings_pref:get_value(current_directory)),
+%%    Ps = [{extensions,wpa:image_formats()},{directory,ImgDir}],
+%%    wpa:import_filename(Ps, fun(N) ->
+%%        wings_wm:send(Owner,{load_image,{N}})
+%%    end);
+%%image_handle({load_image,{FileName}}, {_Var,_I,_Val,Store0,_ClientRect}=_Params) ->
+%%    case read_image(FileName) of
+%%    error -> keep;
+%%    {SrcInfo,Image0} ->
+%%        wings_wm:message(?__(1,"Resizing the image if needed...")),
+%%        case maybe_resize(Image0) of
+%%        {error,GlErr} ->
+%%            wpa:error_msg(?__(2,"The image cannot be resized.\nFile:") ++ "\"~s\"\n" ++
+%%                          ?__(3,"GLU Error:") ++ " ~p - ~s\n",
+%%                  [FileName,GlErr, glu:errorString(GlErr)]);
+%%        #e3d_image{width=W0,height=H0}=Image ->
+%%            #img_info{prev_info={Id_Img_Preview,_,_}}=wings_pref:get_value(heightmap_img_info),
+%%            wings_image:delete(Id_Img_Preview),
+%%            Density=init_density(W0,H0),
+%%            process_elevation(SrcInfo,Image,Density),
+%%            #img_info{prev_info=PreviewInfo,w=W,h=H,hmin=MinE,hmax=MaxE,bpp=Bpp}=wings_pref:get_value(heightmap_img_info),
+%%            {LoCut,HiCut}={?MAX_HUE_VALUE-MinE*?MAX_HUE_VALUE,?MAX_HUE_VALUE-MaxE*?MAX_HUE_VALUE},
+%%            Fxz=get_factor(W,H,10.0),
+%%            {HiValue,{Hue_p1,Hue_p2}}=if Bpp > 2 ->
+%%                {?MAX_HUE_VALUE,?HUE_PARAMS};
+%%              true ->
+%%                {?MAX_RGB_VALUE,?RGB_PARAMS}
+%%            end,
+%%            TextLo=MinE*100.0,
+%%            TextHi=MaxE*100.0,
+%%            Fields=[{ws,W*Fxz},{hs,H*Fxz},{es,1.0},{prw,PreviewInfo},{scut_lo_c,LoCut},
+%%                    {scut_hi_c,HiCut},{scut_lo_m,MinE},{scut_hi_m,MaxE},{hue_p1,Hue_p1},
+%%                    {hue_p2,Hue_p2},{tcut_lo,TextLo},{tcut_hi,TextHi},{hi_value,HiValue}],
+%%            Store=lists:foldr(fun({Var0,Value0}, Sto) ->
+%%                gb_trees:update(Var0,Value0,Sto)
+%%            end, update_range_density(Density,Store0,W,H), Fields),
+%%            {layout,Store}
+%%        end
+%%    end;
+%%image_handle(redraw, {Val,Rect,_Active,_DisEnabled}=_Params) ->
+%%    img_preview(Rect,Val);
+%%image_handle(_Ev,_) ->
+%%    io:format("image_handle\n",[]),
+%%    void.
+%%
+%%img_preview({_,_,_,_},{none,_,_}) -> ok;
+%%img_preview({X,Y,W,H},{Id_Img_Preview,W0,H0}) ->
+%%    Dx=(W-W0)div 2,
+%%    Dy=(H-H0)div 2,
+%%    gl:enable(?GL_TEXTURE_2D),
+%%    wings_image:draw_preview(X+Dx-1,Y-H+Dy+1,W0,H0,Id_Img_Preview),
+%%    gl:disable(?GL_TEXTURE_2D).
+
+%%%% process the color_ramp field events
+%%color_ramp_handle(#mousemotion{x=X,y=Y,state=Bst}, {Var,_I,Val,Store0,_ClientRect}=_Params) ->
+%%    #cr{color_keys=ColKeys0,sel_key=SelKey0}=Val,
+%%    case SelKey0 of
+%%        none -> void;
+%%        _ ->
+%%            Key=X-?CR_START,
+%%            case hit_color_ramp(X,Y) of
+%%                true when 0 < Key, Key < ?CR_W ->
+%%                    if (Bst band ?SDL_BUTTON_LMASK) =/= 0 ->
+%%                        RGB=orddict:fetch(SelKey0,ColKeys0),
+%%                        ColKeys1=orddict:erase(SelKey0,ColKeys0),
+%%                        ColKeys=orddict:store(Key,RGB,ColKeys1),
+%%                        Store=gb_trees:update(Var,Val#cr{name=custom,sel_key=Key,color_keys=ColKeys},Store0),
+%%                        {store,gb_trees:update(cr_preset,custom,Store)};
+%%                      true -> void
+%%                    end;
+%%                _ -> void
+%%            end
+%%    end;
+%%color_ramp_handle(#mousebutton{x=X,y=Y,button=1,state=?SDL_PRESSED}, {Var,_I,Val,Store0,_ClientRect}=_Params) ->
+%%    case hit_color_ramp(X,Y) of
+%%    true ->
+%%        Key=X-?CR_START,
+%%        case wings_io:is_modkey_pressed(?CTRL_BITS) of
+%%            false ->
+%%                ColRamp0=wings_pref:get_value(heightmap_color_ramp),
+%%                RGB0=array:get(Key,ColRamp0),
+%%                Owner = wings_wm:this(),
+%%                wings_color:choose(RGB0, fun(RGB) ->
+%%                    wings_wm:send(Owner,{set_color,{Key,RGB}})
+%%                end);
+%%            _ when 0 < Key, Key < ?CR_W ->
+%%                #cr{color_keys=ColKeys}=Val,
+%%                SelKey=case orddict:find(Key, ColKeys) of
+%%                    {ok,_} -> Key;
+%%                    _ -> none
+%%                end,
+%%                Store=gb_trees:update(Var,Val#cr{name=custom,sel_key=SelKey},Store0),
+%%                {store,gb_trees:update(cr_preset,custom,Store)};
+%%            _ -> void
+%%        end;
+%%    _ -> void
+%%    end;
+%%color_ramp_handle(#mousebutton{button=1,state=?SDL_RELEASED}, {Var,_I,Val,Store,_ClientRect}=_Params) ->
+%%    {store,gb_trees:update(Var,Val#cr{sel_key=none},Store)};
+%%color_ramp_handle({set_color,{Idx,RGB}}, {Var,_I,Val,Store0,_ClientRect}=_Params) ->
+%%    #cr{color_keys=ColKeys0}=Val,
+%%    Val0=Val#cr{name=custom,color_keys=orddict:store(Idx,RGB,ColKeys0)},
+%%    build_color_ramp(Val0),
+%%    Store=gb_trees:update(Var,Val0,Store0),
+%%    wings_wm:send(wings_wm:this(),redraw),
+%%    {store,gb_trees:update(cr_preset,custom,Store)};
+%%color_ramp_handle(redraw, {Val,Rect,_Active,_DisEnabled}=_Params) ->
+%%    #cr{sel_key=SelKey,color_keys=ColKeys}=Val,
+%%    {Xo,Yo,_,_}=Rect,
+%%    Top=Yo-(?CR_START+?CR_H),
+%%    Left=Xo+?CR_START,
+%%    ColRamp=wings_pref:get_value(heightmap_color_ramp),
+%%    array:foldr(fun(Key, Color, _Acc) ->
+%%        gl:'begin'(?GL_LINES),
+%%        gl:color3fv(Color),
+%%        gl:vertex2f(Left+Key, Yo-?CR_START),
+%%        gl:vertex2f(Left+Key, Top+1),
+%%        gl:'end'(),
+%%        case orddict:is_key(Key,ColKeys) of
+%%            true ->
+%%                gl:'begin'(?GL_LINES),
+%%                gl:color3fv({0.0,0.0,0.0}),
+%%                gl:vertex2f(Left+Key, Top),
+%%                gl:vertex2f(Left+Key, Top-2),
+%%                gl:'end'();
+%%            _ -> ok
+%%        end
+%%    end, [], ColRamp),
+%%    if SelKey=/=none ->
+%%        gl:'begin'(?GL_LINE_LOOP),
+%%        gl:color3fv({0.0,0.0,0.0}),
+%%        gl:vertex2f(Left+SelKey-1, Yo-?CR_START+1),
+%%        gl:vertex2f(Left+SelKey, Top),
+%%        gl:vertex2f(Left+SelKey+1, Yo-?CR_START+1),
+%%        gl:vertex2f(Left+SelKey+1, Top-1),
+%%        gl:'end'(),
+%%        gl:'begin'(?GL_LINES),
+%%        gl:color3fv(orddict:fetch(SelKey,ColKeys)),
+%%        gl:vertex2f(Left+SelKey-1, Top-1),
+%%        gl:vertex2f(Left+SelKey, Yo-?CR_START),
+%%        gl:'end'();
+%%    true -> void
+%%    end;
+%%color_ramp_handle(_,_) ->
+%%    void.
+%%
+%%hit_color_ramp(X,Y) when (?CR_START) =< X,
+%%                        X =< (?CR_START+?CR_W),
+%%                        (?CR_START) =< Y,
+%%                        Y =< (?CR_START+?CR_H) -> true;
+%%hit_color_ramp(_,_) -> false.
+%%
+%%build_color_ramp(#cr{color_keys=ColKeys1}) ->
+%%    [Col0|Cols]=orddict:to_list(ColKeys1),
+%%    {_,KeyCols0}=lists:foldl(fun({Key1,_C1}=Item1, {{Key0,_C0}=Item0,Acc}) ->
+%%        Acc0=[build_color_ramp_1(Key,Item0,Item1) || Key <- lists:seq(Key0,Key1)],
+%%        {Item1,Acc++Acc0}
+%%    end, {Col0,[]}, Cols),
+%%    KeyCols=lists:foldl(fun({Key,Value}, Acc) ->
+%%        orddict:store(Key,Value,Acc)
+%%    end, orddict:new(), KeyCols0),
+%%    wings_pref:set_value(heightmap_color_ramp, array:from_orddict(KeyCols));
+%%build_color_ramp(Arg) ->
+%%    ArgDict = dict:from_list(Arg),
+%%    build_color_ramp(dict:fetch(cr,ArgDict)).
+%%
+%%build_color_ramp_1(Key, {Key0,C0}, {Key1,C1}) ->
+%%    Range=Key1-Key0,
+%%    Cr=e3d_vec:sub(C1,C0),
+%%    Rf=(Key-Key0)/Range,
+%%    Cr0=e3d_vec:mul(Cr,Rf),
+%%    {Key,e3d_vec:add(C0,Cr0)}.
 
 create_img_preview(Image) ->
+    io:format("create_img_preview\n",[]),
     case maybe_scale(Image) of
     {error,_}=Error ->
         Error;
@@ -884,23 +974,8 @@ create_img_preview(Image) ->
           {error,_} -> none;
           Id0 -> Id0
         end,
+        io:format("  => Id: ~p\n",[Id]),
         {Id,W0,H0}
-    end.
-
-check_is_grayscale(#e3d_image{width=W,height=H,bytes_pp=Bpp,image=Pixels}=Image)->
-    case Bpp > 2 of
-    true ->
-        Bpp0=Bpp-3,
-        Ca = [ R || << R:1/binary, G:1/binary, B:1/binary, _:Bpp0/binary >> <= Pixels, R=:=G, G=:=B ],
-        case (lists:flatlength(Ca) == W*H) of
-        true ->
-            NewPixel=list_to_binary(Ca),
-            Image#e3d_image{type=g8,bytes_pp=e3d_image:bytes_pp(g8),image=NewPixel};
-        _ ->
-            Image  %% if a false gray-scale image be used we will get a color slider and the "monochromatic" image on preview - we should convert it to gray-scale before to use
-        end;
-    _ ->
-        Image
     end.
 
 %%%
@@ -909,6 +984,7 @@ check_is_grayscale(#e3d_image{width=W,height=H,bytes_pp=Bpp,image=Pixels}=Image)
 
 %% it creates a very small cube that will carry "pst" information
 make_preview() ->
+    io:format("make_preview\n",[]),
     VL=[{1.0,1.0,1.0} || _ <- lists:seq(1,2), _ <- lists:seq(1,2)],
     {VsTop,VsBot}=create_normalized_vertices(mesh,2,2,0.0,1.0,false,false,false,VL),
     Nv0=[scale_vertices(Vertice,0.00005,0.00005,0.0001,false) || Vertice <- VsTop++VsBot],
@@ -925,13 +1001,16 @@ cleanup() ->
 
 process_elevation(SrcInfo,#e3d_image{width=W0,height=H0}=Image0,Density) ->
     PreviewInfo=create_img_preview(Image0),
-    Image=case Density of
-        ?START_DENSITY -> resize_image(Image0,trunc(W0*?START_DENSITY/100.0),trunc(H0*?START_DENSITY/100.0));
-        _ -> Image0
-    end,
-    #e3d_image{image=Pixels,width=W,height=H,bytes_pp=Bpp}=check_is_grayscale(Image),
+    Image =
+        case Density of
+            ?START_DENSITY -> resize_image(Image0,trunc(W0*?START_DENSITY/100.0),
+                                           trunc(H0*?START_DENSITY/100.0));
+            _ -> Image0
+        end,
+    #e3d_image{image=Pixels,width=W,height=H,bytes_pp=Bpp} = Image,
     Len=Bpp*W*H, % required because resize sometimes pad the buffer with zeros
-    Els=pixel_to_height(<<Pixels:Len/binary>>, Bpp),
+    io:format("process_surface - after pixel_to_height\n => Size: ~p | Len: ~p\n",[size(Pixels),Len]),
+    Els=pixel_to_height(Pixels, Bpp),
     MinE=lists:min(Els),
     MaxE=lists:max(Els),
     ImgInfo=#img_info{work_image=Image0,prev_info=PreviewInfo,src_info=SrcInfo,hmin=MinE,hmax=MaxE,w=W0,h=H0,bpp=Bpp},
@@ -943,10 +1022,9 @@ process_density(Arg) ->
     Iw = dict:fetch(iw,ArgDict),
     Ih = dict:fetch(ih,ArgDict),
     #img_info{work_image=Image}=wings_pref:get_value(heightmap_img_info),
-    Image0=resize_image(Image,Iw,Ih),
-    #e3d_image{image=Pixels0,bytes_pp=Bpp0,width=W0,height=H0}=check_is_grayscale(Image0),
-    Len=Bpp0*W0*H0, % required because resize sometimes pad the buffer with zeros
-    Els=pixel_to_height(<<Pixels0:Len/binary>>, Bpp0),
+    #e3d_image{image=Pixels0,bytes_pp=Bpp0,width=W0,height=H0} = resize_image(Image,Iw,Ih),
+%%    Len=Bpp0*W0*H0, % required because resize sometimes pad the buffer with zeros
+    Els=pixel_to_height(Pixels0, Bpp0),
     wings_pref:set_value(heightmap_elevation, {W0,H0,Els}).
 
 %%%
@@ -955,9 +1033,11 @@ process_density(Arg) ->
 
 %%  process_surface/1 computes the data for preview
 process_surface(Arg) ->
+    io:format("process_surface\n",[]),
     ArgDict = dict:from_list(Arg),
     ?SLOW(process_surface(dict:fetch(mode,ArgDict),Arg)).
 process_surface(mesh, Arg) ->
+    io:format("process_surface - Mesh\n",[]),
     ArgDict = dict:from_list(Arg),
     Wm = dict:fetch(ws,ArgDict),
     Hm = dict:fetch(hs,ArgDict),
@@ -973,13 +1053,16 @@ process_surface(mesh, Arg) ->
     wings_wm:message(?__(1,"Computing mesh... (this can take a few minutes)")),
     {W,H,Els}=wings_pref:get_value(heightmap_elevation),
     {VsTop,VsBot}=create_normalized_vertices(mesh,W,H,CLo/100.0,CHi/100.0,GroundValue,BottomFace,SideFace,Els),
+    io:format("process_surface - Mesh - create_normalized_vertices passed...\n",[]),
     Vs=[scale_vertices(Vertice,Wm,Em,Hm,VertexColor) || Vertice <- VsTop++VsBot],
     {Fs,He0}=create_faces(W,H,BottomFace,SideFace),
+    io:format("process_surface - Mesh - create_faces passed...\n",[]),
     He=if HardEdges=:=true -> He0;
         true -> []
     end,
     {Vs,Fs,He,VertexColor};
 process_surface(block, Arg) ->
+    io:format("process_surface - Block\n",[]),
     ArgDict = dict:from_list(Arg),
     Wm = dict:fetch(ws,ArgDict),
     Hm = dict:fetch(hs,ArgDict),
@@ -1015,10 +1098,12 @@ process_surface(block, Arg) ->
     {lists:flatten(VsBlks),Fs,[],VertexColor};
 %%  process_surface/2 computes the data for build the final mesh
 process_surface(Arg, St) ->
+    io:format("process_surface - Arg\n",[]),
     Params=process_surface(Arg),
-    create_surface(Params,Arg,St).
+    create_surface(Arg,Params,St).
 %%  process_surface/3 computes the data for build the final mesh by using pre-calculated data (optimization)
-process_surface(Params, Arg, St) ->
+process_surface(Arg, Params, St) ->
+    io:format("process_surface - Param\n",[]),
     ArgDict=dict:from_list(Arg),
     Mode=dict:fetch(mode,ArgDict),
     W=dict:fetch(iw,ArgDict),
@@ -1039,8 +1124,7 @@ process_surface(Params, Arg, St) ->
 %% create plain wings3d object - no properties is set
 create_surface(_,{Vs,Fs,He,false},St0) ->
     wings_wm:message(?__(1,"Building Wings object... (this can take a few minutes)")),
-    {_,St}=?SLOW(build_shape(?SHAPE_NAME,Fs,Vs,He,St0)),
-    St;
+    ?SLOW(build_shape(?SHAPE_NAME,Fs,Vs,He,St0));
 %% create wings3d object and set the color vertex property
 create_surface(_,{Vs0,Fs,He,true},St0) ->
     wings_wm:message(?__(1,"Building Wings object... (this can take a few minutes)")),
@@ -1136,10 +1220,10 @@ create_texture(Name,TxSize) ->
                     end
             end
     end,
-    create_texture_1(Image,Name,Bpp=<2).
+    create_texture_1(Image,Name,Bpp=:=1).
 
 create_texture_1(#e3d_image{width=W,height=H}=Image0,Name,Gray) ->
-    #e3d_image{image=Pixels}=Image1=e3d_image:convert(Image0, r8g8b8, 1, lower_left),
+    #e3d_image{image=Pixels}=Image1=e3d_image:convert(Image0, r8g8b8),
     ColRamp=wings_pref:get_value(heightmap_color_ramp),
     Calc_Color=fun(Col,Range) ->
         Idx=Col*Range,
@@ -1166,7 +1250,7 @@ create_texture_1(#e3d_image{width=W,height=H}=Image0,Name,Gray) ->
             list_to_binary([trunc(R1),trunc(G1),trunc(B1)])
         end,
 
-    NewPix=if Gray=:=true ->
+    NewPix=if Gray ->
         [Fun_Gray(R0) || <<R0:1/binary,_G0:1/binary,_B0:1/binary>> <= Pixels];
     true ->
         [Fun_HUE(R0,G0,B0) || <<R0:1/binary,G0:1/binary,B0:1/binary>> <= Pixels]
@@ -1434,7 +1518,7 @@ build_shape(Prefix, Fs, Vs, He, #st{onext=Oid}=St) ->
         wings_we_build:we(Fs,Vs,He0)
     end,
     Name = Prefix++integer_to_list(Oid),
-    {Oid,wings_shape:new(Name, We, St)}.
+    wings_obj:new(Name, We, St).
 
 get_factor(W0,H0,Dmax) when W0>H0 ->
     Dmax/W0;
@@ -1474,35 +1558,34 @@ changed_field(Old_Res, Res) ->
         end
     end, none, Arg1).
 
-get_current_state() ->
-    DispLists = wings_wm:get_prop(geom, display_lists),
-    get({wm_current_state,DispLists}).
-
 %%%
 %%%  Processing the binary data from image
 %%%
 
 %% Conversion of the binary data from image to elevation list
-pixel_to_height(Pixel,Bpp) ->
-    case Pixel of
-    <<>> ->
-        [];
-    _ ->
-        case Bpp > 2 of
-        true ->  %% r8g8b8 and r8g8b8a8
-            Bpp0=Bpp-3,
-            <<R0:1/binary,G0:1/binary,B0:1/binary,_:Bpp0/binary,T/binary>>=Pixel,
-            [R]=binary_to_list(R0),
-            [G]=binary_to_list(G0),
-            [B]=binary_to_list(B0),
-            [rgb_to_height(R,G,B)/?MAX_HUE_VALUE|pixel_to_height(T,Bpp)];
-        false ->  %% g8 and g8a8
-            Bpp0=Bpp-1,
-            <<R0:1/binary,_:Bpp0/binary,T/binary>>=Pixel,
-            [R]=binary_to_list(R0),
-            [R/?MAX_RGB_VALUE|pixel_to_height(T,Bpp)]
-        end
-    end.
+pixel_to_height(Pixels,Bpp) ->
+    pixel_to_height(Pixels,Bpp,[]).
+
+pixel_to_height(<<>>,_,Acc) -> Acc;
+pixel_to_height(<<R0:1/binary,T/binary>>, Bpp=1, Acc) ->
+    [R]=binary_to_list(R0),
+    H = R/?MAX_RGB_VALUE,
+    pixel_to_height(T,Bpp,Acc++[H]);
+pixel_to_height(<<R0:1/binary,G0:1/binary,B0:1/binary,T/binary>>, Bpp=3, Acc) ->
+    [R]=binary_to_list(R0),
+    [G]=binary_to_list(G0),
+    [B]=binary_to_list(B0),
+    H = rgb_to_height(R,G,B)/?MAX_HUE_VALUE,
+    pixel_to_height(T,Bpp,Acc++[H]).
+
+build_color(?MAX_HUE_VALUE, Percent, S, V) ->
+    if Percent>=0.99 ->
+        wings_color:hsv_to_rgb(?MAX_HUE_VALUE*0.99,S,V);
+    true ->
+        wings_color:hsv_to_rgb(?MAX_HUE_VALUE*Percent,S,V)
+    end;
+build_color(?MAX_RGB_VALUE, Percent, _S, _V) ->
+    wings_color:rgb3fv({?MAX_RGB_VALUE*Percent,?MAX_RGB_VALUE*Percent,?MAX_RGB_VALUE*Percent}).
 
 %% Conversion of rgb values to elevation
 %% When image is a grayscale the max value is 255
@@ -1562,16 +1645,21 @@ maybe_scale(#e3d_image{width=W0,height=H0}=Image) ->
             end
     end.
 
-resize_image(#e3d_image{width=W0,height=H0,bytes_pp=BytesPerPixel,
+resize_image(#e3d_image{width=W0,height=H0,bytes_pp=Bpp,
   image=Bits0,type=Type}=Image, W, H) ->
-    Out = wings_io:get_buffer(BytesPerPixel*W*H, ?GL_UNSIGNED_BYTE),
+    io:format("resize_image - before get_buffer\n",[]),
+    Out = wings_io:get_buffer(Bpp*W*H, ?GL_UNSIGNED_BYTE),
+    io:format("resize_image - before texture_format\n",[]),
     Format = texture_format(Image),
+    io:format("resize_image - before scaleImage\n",[]),
     GlErr =glu:scaleImage(Format, W0, H0, ?GL_UNSIGNED_BYTE,
         Bits0, W, H, ?GL_UNSIGNED_BYTE, Out),
+    io:format("resize_image - after scaleImage: ~p\n",[GlErr]),
     case GlErr of
         0 ->
+            io:format("resize_image - before get_bin\n",[]),
             Bits = wings_io:get_bin(Out),
-            Image#e3d_image{width=W,height=H,bytes_pp=BytesPerPixel,image=Bits,type=Type};
+            Image#e3d_image{width=W,height=H,bytes_pp=Bpp,image=Bits,type=Type};
         _ ->
             {error,GlErr}
     end.
@@ -1637,7 +1725,7 @@ nearest_power_two(N, B) -> nearest_power_two(N, B bsl 1).
 %%% end
 
 %%% ==============================================
-%%% copied from wings_prefs.erl
+%%% copied from wings_pref.erl
 %%% begin
 -define(MAC_PREFS, "Library/Preferences/Wings3D/Preferences.txt").
 -define(MAC_OLD_PREFS, "Library/Preferences/Wings 3D Preferences.txt").
@@ -1706,130 +1794,152 @@ gen_tx_sizes(Sz, Acc) ->
 %%%
 % update_dlist/3 compiles the gl list, draw/4 is called from wings_render.erl.
 % update_dlist({_,_}=Data, #dlo=D, #st=St)
-update_dlist({fs,{FsList,VsList,HeList,Colored}}, #dlo{plugins=Pdl}=D, _St) ->
+update_dlist({fs,{VsList,FsList,HeList,Colored}}, #dlo{plugins=Pdl}=D, _St) ->
     Key = ?MODULE,
-    VsTuple=list_to_tuple(VsList),
-    List0 = gl:genLists(1),
-    gl:newList(List0,?GL_COMPILE),
-    pump_faces(FsList,VsTuple),
-    gl:endList(),
+%%    io:format(" -> update_dlist - ~p\n    Vs: ~p\n    Fs: ~p\n    Hes: ~p\n",[Key,VsList,FsList,HeList]),
+    case FsList of
+        [] ->
+            D#dlo{plugins=[{Key,none}|Pdl]};
+        _ ->
+            VsTuple=list_to_tuple(VsList),
 
-    List1 = gl:genLists(1),
-    gl:newList(List1,?GL_COMPILE),
-    pump_edges(FsList,VsTuple),
-    gl:endList(),
+            {Quads,_Polys,PsLens} = build_faces(FsList,VsTuple),
 
-    List2=case HeList of
-    [] -> none;
-    _ ->
-        List3 = gl:genLists(1),
-        gl:newList(List3,?GL_COMPILE),
-        pump_hard_edges(HeList,VsTuple),
-        gl:endList(),
-        List3
-    end,
-    D#dlo{plugins=[{Key,{fs,[List0,List1,List2,Colored]}}|Pdl]}.
+            io:format(" -> NPolys: ~p\n",[PsLens]),
+%%            {_,SPolys,NPolys} =
+%%                lists:foldl(fun(N, {Start, Ss, Ls}) ->
+%%                                {N+Start, <<Ss/binary, Start:?UI32>>, <<Ls/binary, N:?UI32>>}
+%%                            end, {0, <<>>, <<>>}, PsLens),
+%%            DrawPoly0 =
+%%                fun(RS) ->
+%%                    gl:multiDrawArrays(?GL_POLYGON, SPolys, NPolys),
+%%                    RS
+%%                end,
+%%            DrawPoly = wings_vbo:new(DrawPoly0, Polys, [vertex,normal,color]),
 
-pump_faces([],_) -> ok;
-pump_faces([[[_,_,_,_]|_]|_]=Fs,VsList) ->
-    lists:foreach(fun(F0) ->
-        pump_faces(F0,VsList)
-    end, Fs);
-pump_faces(Fs,VsList) ->
-    ColRamp=wings_pref:get_value(heightmap_color_ramp),
-    lists:foreach(
-      fun(F) ->
-          {Vs,VsCol}=lists:foldl(fun(Vi,{VAcc,HAcc}) ->
-              case element(Vi+1,VsList) of
-                  {{_,_,_}=V,H} ->
-                      Idx=trunc(H* (?CR_W*1.0)),
-                      Vc=array:get(Idx,ColRamp),
-                      {VAcc++[V],HAcc++[Vc]};
-                  {_,_,_}=V ->
-                      {VAcc++[V],HAcc}
-              end
-          end, {[],[]}, F),
-          gl:'begin'(?GL_POLYGON),
-          gl:normal3fv(e3d_vec:normal(Vs)),
-          pump_vertex(Vs,VsCol),
-          gl:'end'()
-      end, Fs).
+            NQuad = byte_size(Quads) div (12*3),
+%%            io:format(" -> NQuad: ~p\n",[NQuad]),
+            DrawQuad0 =
+                fun(RS) ->
+                    gl:drawArrays(?GL_QUADS, 0, NQuad),
+                    RS
+                end,
+            DrawQuad = wings_vbo:new(DrawQuad0, Quads, [vertex,normal,color]),
 
-pump_edges([],_) -> ok;
-pump_edges([[[_,_,_,_]|_]|_]=Fs,VsList) ->
-    lists:foreach(fun(F0) ->
-        pump_edges(F0,VsList)
-    end, Fs);
-pump_edges(Fs,VsList) ->
-    lists:foreach(
-      fun(F) ->
-          Vs=lists:foldl(fun(Vi,VAcc) ->
-              VAcc++case element(Vi+1,VsList) of
-                  {{_,_,_}=V,_} -> [V];
-                  {_,_,_}=V -> [V]
-              end
-          end, [], F),
-          gl:'begin'(?GL_POLYGON),
-          pump_vertex(Vs,[]),
-          gl:'end'()
-      end, Fs).
+            DataEdges = pump_edges(FsList,VsTuple),
+            NEdges = byte_size(DataEdges) div (12*2),
+%%            io:format(" -> NEdges: ~p\n",[NEdges]),
+            DrawEdges0 =
+                fun(RS) ->
+                    gl:drawArrays(?GL_LINES, 0, NEdges),
+                    RS
+                end,
+            DrawEdges = wings_vbo:new(DrawEdges0, DataEdges, [vertex,color]),
 
-pump_hard_edges([],_) -> ok;
+            case pump_hard_edges(HeList,VsTuple) of
+                <<>> ->
+                    DrawHEdges = none;
+                DataHEdges ->
+                    NHEdges = byte_size(DataHEdges) div (12*2), %% [V0,V1| ...]
+%%                    io:format(" -> NHEdges: ~p\n",[NHEdges]),
+                    DrawHEdges0 = fun(RS) ->
+                                    gl:drawArrays(?GL_LINES, 0, NHEdges),
+                                    RS
+                                 end,
+                    DrawHEdges = wings_vbo:new(DrawHEdges0, DataHEdges, [vertex,color])
+            end,
+            DrawPoly = non,
+            D#dlo{plugins=[{Key,[DrawPoly,DrawQuad,DrawEdges,DrawHEdges,Colored]}|Pdl]}
+    end.
+%%    D#dlo{plugins=[{Key,{fs,[List0,List1,List2,Colored]}}|Pdl]}.
+
+%%pump_faces([],_) -> ok;
+%%pump_faces([F0|_]=Fs,VsList) when is_list(F0) ->
+%%    ColRamp = wings_pref:get_value(heightmap_color_ramp),
+%%    {Rd,Gd,Bd} =  wings_pref:get_value(material_default),
+%%    lists:foldl(fun(F, FAcc) ->
+%%        lists:foldl(fun(V,FAcc0) ->
+%%                        case element(V+1,VsList) of
+%%                            {{X,Y,Z}, H} ->
+%%                                Idx = trunc(H* (?CR_W*1.0)),
+%%                                {R,G,B} = array:get(Idx,ColRamp),
+%%                                <<FAcc0/binary, X:?F32,Y:?F32,Z:?F32,R:?F32,G:?F32,B:?F32>>;
+%%                            {X,Y,Z} ->
+%%                                <<FAcc0/binary, X:?F32,Y:?F32,Z:?F32,Rd:?F32,Gd:?F32,Bd:?F32>>
+%%                        end
+%%                    end, FAcc, F)
+%%                end, <<>>, Fs).
+%%
+pump_edges([],_) -> <<>>;
+pump_edges([F0|_]=Fs,VsList) when is_list(F0) ->
+    Color = wings_pref:get_value(edge_color),
+    lists:foldl(fun([V0|_]=F, Acc) ->
+                    Vs =
+                      lists:foldr(fun(I,Acc0) ->
+                                      case element(I+1,VsList) of
+                                          {V,_} -> [V|Acc0];
+                                          V -> [V|Acc0]
+                                      end
+                                  end, [], F++[V0]),
+                    FBin = build_pair(Color,Vs,<<>>),
+                    <<Acc/binary,FBin/binary>>
+                end, <<>>, Fs).
+
+pump_hard_edges([],_) -> <<>>;
 pump_hard_edges(Es,VsList) ->
-    lists:foldl(fun({I0,I1}, _) ->
-          gl:'begin'(?GL_LINES),
+    lists:foldl(fun({I0,I1}, EAcc) ->
           case element(I0+1,VsList) of
-            {{_,_,_}=V1,_} -> {{_,_,_}=V2,_}=element(I1+1,VsList);
-            {_,_,_}=V1 -> V2=element(I1+1,VsList)
-          end,
-          gl:vertex3fv(V1),
-          gl:vertex3fv(V2),
-          gl:'end'()
-      end, [], Es).
-
-pump_vertex([],[]) -> ok;
-pump_vertex([V|Vs],[]=Vsc) ->
-    gl:vertex3fv(V),
-    pump_vertex(Vs,Vsc);
-pump_vertex([V|Vs],[Vc|Vsc]) ->
-    gl:color3fv(Vc),
-    gl:vertex3fv(V),
-    pump_vertex(Vs,Vsc).
+            {{X0,Y0,Z0},_} ->
+                {{X1,Y1,Z1},_} = element(I1+1,VsList),
+                <<EAcc/binary, X0:?F32,Y0:?F32,Z0:?F32,X1:?F32,Y1:?F32,Z1:?F32>>;
+            {X0,Y0,Z0} ->
+                {X1,Y1,Z1} = element(I1+1,VsList),
+                <<EAcc/binary, X0:?F32,Y0:?F32,Z0:?F32,X1:?F32,Y1:?F32,Z1:?F32>>
+          end
+      end, <<>>, Es).
 
 % draw(plain/smooth=Flag, #dlo=D, body/face/edge/vertex=SelMode)
-draw(_, {fs,[LstFs,LstEs,LstHe,Colored]}, _, SelMode) ->
-    gl:disable(?GL_CULL_FACE),
-    gl:disable(?GL_POLYGON_SMOOTH),
-
-    if Colored=:= false ->
-        wings_render:enable_lighting(wings_view:load_matrices(true));
-      true -> ok
-    end,
+draw(_, [_DrawPoly,DrawQuad,DrawEdges,DrawHEdges,_Colored], _, SelMode, RS4) ->
+%%    gl:disable(?GL_CULL_FACE),
+%%    gl:disable(?GL_POLYGON_SMOOTH),
+%%    RS3 = RS4,
+%%        if Colored=:=false ->
+%%            wings_render:enable_lighting(wings_view:load_matrices(true),RS4);
+%%          true -> RS4
+%%        end,
     gl:enable(?GL_POLYGON_OFFSET_FILL),
-    wings_render:polygonOffset(2),
+%%    wings_render:polygonOffset(2.0),
     gl:polygonMode(?GL_FRONT, ?GL_FILL),
-    wings_dl:call(LstFs),
-    gl:disable(?GL_POLYGON_OFFSET_FILL),
-    if Colored=:= false ->
-        wings_render:disable_lighting();
-      true -> ok
-    end,
 
+    RS3 = wings_dl:call(DrawQuad,RS4),
+    RS2 =RS3,
+%%    RS2 = wings_dl:call(DrawPoly,RS3),
+    gl:disable(?GL_POLYGON_OFFSET_FILL),
+
+    RS1 = RS2,
+%%        if Colored=:=false ->
+%%            wings_render:disable_lighting(RS2);
+%%          true -> RS2
+%%        end,
     gl:enable(?GL_POLYGON_OFFSET_LINE),
-    wings_render:polygonOffset(1),
+%%    wings_render:polygonOffset(1.0),
+    gl:lineWidth(1),
     gl:color3fv(wings_pref:get_value(edge_color)),
     gl:polygonMode(?GL_FRONT, ?GL_LINE),
-    wings_dl:call(LstEs),
-    gl:disable(?GL_POLYGON_OFFSET_LINE),
-    draw_hard_edges(LstHe,SelMode);
-draw(_,_,_,_) ->
-    ok.
+    RS0 = wings_dl:call(DrawEdges, RS1),
 
-draw_hard_edges(none, _) -> ok;
-draw_hard_edges(Hard, SelMode) ->
-    gl:lineWidth(hard_edge_width(SelMode)),
-    gl:color3fv(wings_pref:get_value(hard_edge_color)),
-    wings_dl:call(Hard).
+    RS =
+        case DrawHEdges of
+            none -> RS0;
+            _ ->
+                gl:lineWidth(hard_edge_width(SelMode)),
+                gl:color3fv(wings_pref:get_value(hard_edge_color)),
+                wings_dl:call(DrawHEdges,RS0)
+        end,
+    gl:disable(?GL_POLYGON_OFFSET_LINE),
+    RS;
+draw(_,_,_,_,RS) ->
+    RS.
 
 hard_edge_width(edge) -> wings_pref:get_value(hard_edge_width);
 hard_edge_width(_) -> max(wings_pref:get_value(hard_edge_width) - 1, 1).
@@ -1844,8 +1954,9 @@ hard_edge_width(_) -> max(wings_pref:get_value(hard_edge_width) - 1, 1).
 % get_data/3 is called from wings_plugin.erl as ?MODULE:get_data/3
 %
 % get_data(update_dlist/save=Flag, plugin data=PData, Acc) should result {ok, Result}
-get_data(update_dlist, {{Vs,Fs,He,Colored},_Res}=_Data, Acc) ->
-    {ok, [{plugin, {?MODULE, {fs, {Fs,Vs,He,Colored}}}}|Acc]};
+get_data(update_dlist, {Data,_Res}=_Data, Acc) when is_tuple(Data) ->
+    io:format(" -> get_data\n",[]),
+    {ok, [{plugin, {?MODULE, {fs, Data}}}|Acc]};
 get_data(save, _, _) ->
     {none, []}.
 
@@ -1857,3 +1968,67 @@ merge_we(_We) ->
     io:format("merge_we called.",[]),
     _We.
 
+
+-record(win,
+    {z,					%Z order.
+     x,y,					%Position.
+     w,h,					%Size.
+     name,					%Name of window.
+     stk,					%Event handler stack.
+     links=[],			        %Windows linked to this one.
+     dd=none, 				%Display data cache
+     obj                                    %wx window
+    }).
+
+get_current_state() ->
+    #win{dd=DispData} = get_window_data(geom),
+    get({wm_current_state,DispData}).
+
+get_window_data(Name) ->
+    gb_trees:get(Name, get(wm_windows)).
+
+
+build_faces(Ftab,Vtab) ->
+    Color = wings_pref:get_value(material_default),
+    Ns =
+        lists:foldl(fun(F, Acc) ->
+                        Vs = [element(Idx+1,Vtab) || Idx <- F],
+                        Fn = e3d_vec:normal(Vs),
+                        [{Color,Fn,Vs}|Acc]
+                    end,[],Ftab),
+    build_faces_0(Ns, <<>>, <<>>, []).
+
+build_faces_0([{{R,G,B},{NX,NY,NZ},[{X1,Y1,Z1},{X2,Y2,Z2},{X3,Y3,Z3},{X4,Y4,Z4}]}|Ns],
+              Quads0, Polys, PsLens) ->
+    Quads = <<Quads0/binary,
+              X1:?F32,Y1:?F32,Z1:?F32,
+              NX:?F32,NY:?F32,NZ:?F32,
+              R:?F32,G:?F32,B:?F32,
+              X2:?F32,Y2:?F32,Z2:?F32,
+              NX:?F32,NY:?F32,NZ:?F32,
+              R:?F32,G:?F32,B:?F32,
+              X3:?F32,Y3:?F32,Z3:?F32,
+              NX:?F32,NY:?F32,NZ:?F32,
+              R:?F32,G:?F32,B:?F32,
+              X4:?F32,Y4:?F32,Z4:?F32,
+              NX:?F32,NY:?F32,NZ:?F32,
+              R:?F32,G:?F32,B:?F32>>,
+    build_faces_0(Ns, Quads, Polys, PsLens);
+build_faces_0([{{R,G,B},{NX,NY,NZ},VsPos}|Ns], Quads, Polys, PsLens) ->
+    Poly = << <<X:?F32,Y:?F32,Z:?F32,NX:?F32,NY:?F32,NZ:?F32,R:?F32,G:?F32,B:?F32>> || {X,Y,Z} <- VsPos >>,
+    NoVs = byte_size(Poly) div 12*3,
+    build_faces_0(Ns,Quads,<<Polys/binary,Poly/binary>>,[NoVs|PsLens]);
+build_faces_0([], Quads, Polys, PsLens) ->
+    {Quads, Polys, lists:reverse(PsLens)}.
+
+
+build_pair(_, [], Acc) -> Acc;
+build_pair(_, [_], Acc) -> Acc;
+build_pair(Color, [Fs|Tail], Acc0) when is_list(Fs) ->
+    Acc = build_pair(Color,Fs,Acc0),
+    build_pair(Color,Tail,Acc);
+build_pair({R,G,B}=Color, [{Psx,Psy,Psz}|[{Pex,Pey,Pez}|_]=Seg], Acc0) ->
+    Acc = <<Acc0/binary,
+            Psx:?F32,Psy:?F32,Psz:?F32,R:?F32,G:?F32,B:?F32,
+            Pex:?F32,Pey:?F32,Pez:?F32,R:?F32,G:?F32,B:?F32>>,
+    build_pair(Color,Seg,Acc).
