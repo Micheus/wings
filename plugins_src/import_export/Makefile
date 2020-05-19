@@ -47,6 +47,7 @@ MODULES= \
 	wpc_stl \
 	wpc_svg_path \
 	wpc_wmf_paths \
+	wpc_thebounty \
 	wpc_wrl \
 	wpc_x \
 	x_import \
