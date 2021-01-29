@@ -29,6 +29,7 @@
      vtv=orddict:new(),	    % Texture coordinates for continuous UVs.
      vn=[],					% Vertex normals.
      f=[],					% Faces.
+     tx=gb_trees:empty(),   % Texture coordinates table
      mat=gb_sets:new(),		% Materials.
 
      num_v=0,				% Number of vertices.
@@ -124,58 +125,56 @@ import_file(Name) ->
 
 import_1(Fd) ->
     Ost = import_2(Fd,get_token(read_line(Fd)),#ost{}),
-    #ost{v=Vtab0,vtp=TxTab1p,vtv=TxTab1v,f=Ftab1,vn=VnTab0,mat=Mat,num_vtp=NVtp} = Ost,
-    Vtab = lists:reverse(Vtab0),
-    Ftab0 = lists:reverse(Ftab1),
-    VnTab = lists:reverse(VnTab0),
-    PLY = NVtp>0,
-    if PLY -> TxTab1 = TxTab1p;
-    true -> TxTab1 = TxTab1v
-    end,
-    {Ftab,TxTab} = make_ftab(Ftab0, TxTab1, VnTab, PLY),
+    #ost{v=Vtab,tx=TxTab,vtp=Vtp,vtv=Vtv,f=Ftab0,vn=VnTab,mat=Mat} = Ost,
+    Ftab = make_ftab(Ftab0,Vtp,Vtv,VnTab),
     Template = #e3d_mesh{type=polygon,vs=Vtab,fs=Ftab,tx=TxTab,ns=VnTab},
+    wings_pb:update(0.85,"parsing object data..."),
     Obj = make_object(Template),
-    wings_pb:update(0.85,"Building object..."),
     Obj#e3d_object{mat=Mat}.
 
 make_object(Template) ->
     Mesh = e3d_mesh:clean_faces(Template),
     #e3d_object{obj=Mesh}.
 
-import_2(_,eof,Acc) ->
+import_2(_, eof, #ost{v=Vtab0,tx=TxTab0,f=Ftab0,vn=VnTab0}=Acc) ->
     wings_pb:update(0.75,"Processing data..."),
-    Acc;
-import_2(Fd,{"VERTICES",_Count},Acc0) ->
+    %% removing temporary indexes leaving only the UV list
+    TxTab = [UV || {_,UV} <- orddict:from_list(gb_trees:values(TxTab0))],
+    Vtab = lists:reverse(Vtab0),
+    Ftab = lists:reverse(Ftab0),
+    VnTab = lists:reverse(VnTab0),
+    Acc#ost{v=Vtab,tx=TxTab,f=Ftab,vn=VnTab};
+import_2(Fd, {"VERTICES",_Count}, Acc0) ->
     wings_pb:update(0.05,"Reading vertices..."),
     case import_3(Fd, vertex, read_line(Fd), Acc0) of
         {Line,Acc} -> import_2(Fd,get_token(Line),Acc);
         Acc -> Acc
     end;
-import_2(Fd,{"POLYGONS",_Count0},Acc0) ->
+import_2(Fd, {"POLYGONS",_Count0}, Acc0) ->
     wings_pb:update(0.20,"Reading polygons..."),
     case import_3(Fd, polygon, read_line(Fd), Acc0) of
         {Line,Acc} -> import_2(Fd,get_token(Line),Acc);
         Acc -> Acc
     end;
-import_2(Fd,{"WEIGHT",_Id},Acc) ->
+import_2(Fd, {"WEIGHT",_Id}, Acc) ->
     wings_pb:update(0.35,"Reading weights..."),
     import_2(Fd,read_line(Fd),Acc);
-import_2(Fd,{"UV",_Id,_Count0},Acc0) ->
+import_2(Fd, {"UV",_Id,_Count0}, Acc0) ->
     wings_pb:update(0.40,"Reading UVs..."),
     case import_3(Fd, uv, read_line(Fd), Acc0) of
         {Line,Acc} -> import_2(Fd,get_token(Line),Acc);
         Acc -> Acc
     end;
-import_2(Fd,{"MORPH",_Id},Acc) ->
+import_2(Fd, {"MORPH",_Id}, Acc) ->
     wings_pb:update(0.55,"Reading morphs..."),
     import_2(Fd,read_line(Fd),Acc);
-import_2(Fd,{"VERTEXNORMALS",_Id},Acc0) ->
+import_2(Fd, {"VERTEXNORMALS",_Id}, Acc0) ->
     wings_pb:update(0.60,"Reading vertex normals..."),
     case import_3(Fd, vertex_normal, read_line(Fd), Acc0) of
         {Line,Acc} -> import_2(Fd,get_token(Line),Acc);
         Acc -> Acc
     end;
-import_2(Fd,_,Acc) ->
+import_2(Fd, _, Acc) ->
     import_2(Fd,get_token(read_line(Fd)),Acc).
 
 import_3(_, _, eof, Acc) -> Acc;
@@ -200,41 +199,51 @@ import_3(Fd, polygon=Type, Line0, #ost{f=Ftab,mat=FMat}=Acc) ->
             import_3(Fd, Type, read_line(Fd), Acc#ost{f=[{Mat,Vlist}|Ftab],mat=gb_sets:add(Mat,FMat)});
         _ -> {Line0,Acc}
     end;
-import_3(Fd, uv=Type, Line0, #ost{vtv=Vtv,vtp=Vtp,num_vtp=NumVtp0,num_vtv=NumVtv0}=Acc) ->
+import_3(Fd, uv=Type, Line0, #ost{tx=TxTab0,vtv=Vtv0,vtp=Vtp0,num_vtp=NumVtp0,num_vtv=NumVtv0}=Acc) ->
     case string:tokens(Line0,":") of
-        [UV0,"PLY",PId0,"PNT",VId0] ->
-            PId = list_to_integer(PId0),
-            VId = list_to_integer(VId0),
+        [UV0,Kind|_] = Tokens when Kind=:="PLY"; Kind=:="PNT" ->
+            [VId0|_] = lists:reverse(Tokens),
             UV = string:tokens(UV0," "),
-            [U,V] = [list_to_float(V) || V <- UV],
-            VtpI =
-                case gb_trees:lookup(PId,Vtp) of
-                    none -> [];
-                    {value, Value0} -> Value0
-                end,
-            case orddict:find(VId,VtpI) of
-                {ok, Value} -> 
-                    UVp = Value,
-                    NumVtp = NumVtp0;
-                error -> 
-                    UVp = {U,V},
-                    NumVtp = NumVtp0+1
-            end,
-            import_3(Fd, Type, read_line(Fd), Acc#ost{vtp=gb_trees:enter(PId,orddict:store(VId,UVp,VtpI),Vtp),
-                                                      num_vtp=NumVtp});
-        [UV0,"PNT",VId0] ->
             VId = list_to_integer(VId0),
-            UV = string:tokens(UV0," "),
-            [U,V] = [list_to_float(V) || V <- UV],
-            case orddict:find(VId,Vtv) of
-                {ok, Value} -> 
-                    UVp = Value,
-                    NumVtv = NumVtv0;
-                error -> 
-                    UVp = {U,V},
-                    NumVtv = NumVtv0+1
+            %% getting/updating the UV table
+            case gb_trees:lookup(UV,TxTab0) of
+                {value,{Id,_UV}} ->
+                    UVId = Id,
+                    TxTab = TxTab0;
+                none -> 
+                    UVp = list_to_tuple([list_to_float(V) || V <- UV]),
+                    UVId = gb_trees:size(TxTab0),
+                    TxTab = gb_trees:enter(UV,{UVId,UVp},TxTab0)
             end,
-            import_3(Fd, Type, read_line(Fd), Acc#ost{vtv=orddict:store(VId,UVp,Vtv),num_vtv=NumVtv+1});
+
+            case Tokens of
+                [_,"PLY",PId0,"PNT",VId0] ->
+                    %% Lookking for the vertex table in the polygon table
+                    PId = list_to_integer(PId0),
+                    case gb_trees:lookup(PId,Vtp0) of
+                        none -> Vtv = [];
+                        {value, Value} -> Vtv = Value
+                    end,
+
+                    %% Lookking for the polygon's vertex in the vertex table
+                    case orddict:find(VId,Vtv) of
+                        {ok, _UVId} -> NumVtp = NumVtp0;
+                        error -> NumVtp = NumVtp0+1
+                    end,
+                    %% Updating the polygon's vertex table with the UV info
+                    Vtp = gb_trees:enter(PId,orddict:store(VId,UVId,Vtv),Vtp0),
+
+                    import_3(Fd, Type, read_line(Fd), Acc#ost{tx=TxTab,vtp=Vtp,num_vtp=NumVtp});
+                [_,"PNT",VId0] ->
+                    %% Lookking for the polygon's vertex in the vertex table
+                    case orddict:find(VId,Vtv0) of
+                        {ok, _UVId} -> NumVtv = NumVtv0;
+                        error -> NumVtv = NumVtv0+1
+                    end,
+                    %% Updating the vertex table with the UV info
+                    Vtv = orddict:store(VId,UVId,Vtv0),
+                    import_3(Fd, Type, read_line(Fd), Acc#ost{tx=TxTab,vtv=Vtv,num_vtv=NumVtv})
+            end;
         _ -> {Line0,Acc}
     end;
 import_3(Fd, vertex_normal=Type, Line0, #ost{v=Vtab,num_vn=NumVn}=Acc) ->
@@ -249,41 +258,40 @@ import_3(Fd, vertex_normal=Type, Line0, #ost{v=Vtab,num_vn=NumVn}=Acc) ->
 %%% Utils
 %%%
 
-make_ftab(Ftab, TxTab, VnTab, TxByFace) ->
-    make_ftab(0,Ftab,TxTab,array:from_list(VnTab,none),TxByFace,{[],[]}).
+make_ftab(Ftab, Vtp, Vtv, VnTab) ->
+    make_ftab(0,Ftab,Vtp,Vtv,array:from_list(VnTab,none),[]).
 
-make_ftab(F, [{Mat,Vs}|Fs], TxTab, VnTab, TxByFace, {FsAcc,TxAcc0}) ->
-    case TxByFace of
-        true ->
-            case gb_trees:lookup(F,TxTab) of
-                none -> 
-                    _Txs = [], 
-                    TxIdx = [],
-                    TxAcc = TxAcc0;
-                {value,IdVs} -> 
-                    {_,TxIdx,Txs} = make_ftab_0(Vs,IdVs,{length(TxAcc0),[],[]}),
-                    TxAcc = TxAcc0++Txs
-                end;
-        false -> 
-            {_,TxIdx,Txs} = make_ftab_0(Vs,TxTab,{length(TxAcc0),[],[]}),
-            TxAcc = TxAcc0++Txs
+make_ftab(_,[], _, _, _,  Acc) -> Acc;
+make_ftab(PId, [{Mat,Vs}|Fs], Vtp, Vtv, VnTab, FsAcc) ->
+    case gb_trees:lookup(PId,Vtp) of
+        {value,Vtv0} -> 
+            Txs0 = make_ftab_0(Vs,Vtv0,Vtv,[]);
+        none -> 
+            Txs0 = make_ftab_0(Vs,Vtv,[],[])
     end,
     Ns = case [array:get(V,VnTab) || V <- Vs] of
              [none|_] -> [];
              Ns0 -> Ns0
          end,
-    make_ftab(F+1,Fs,TxTab,VnTab,TxByFace,{[#e3d_face{mat=Mat,vs=Vs,tx=TxIdx,ns=Ns}|FsAcc],TxAcc});
-make_ftab(_,[], _, _, _, Acc) -> Acc.
+    Txs = cleanup_uvs(Txs0),
+    io:format(" -> Txs: ~p\n",[Txs]),
+    make_ftab(PId+1,Fs,Vtp,Vtv,VnTab,FsAcc++[#e3d_face{mat=Mat,vs=Vs,tx=Txs,ns=Ns}]).
 
-make_ftab_0([], _, {Tx,TxIdx,TxAcc}=Acc) ->
+make_ftab_0([], _, _, Acc) -> Acc;
+make_ftab_0([VId|Vs], Vtv0, Vtv1, Acc) ->
+    case orddict:find(VId,Vtv0) of
+        {ok, UVId} -> make_ftab_0(Vs,Vtv0,Vtv1,Acc++[UVId]);
+        error -> 
+            case orddict:find(VId,Vtv1) of
+                {ok, UVId} -> make_ftab_0(Vs,Vtv0,Vtv1,Acc++[UVId]);
+                error -> make_ftab_0(Vs,Vtv0,Vtv1,Acc++[none])
+            end
+    end.
+
+cleanup_uvs(TxIdx) ->
     case [Idx || Idx <- TxIdx, Idx=/=none] of
-        [] -> {Tx,[],TxAcc};
-        _ -> Acc
-    end;
-make_ftab_0([V|Vs], IdVs, {Tx,TxIdx,TxAcc}) ->
-    case orddict:find(V,IdVs) of
-        {ok,UV} -> make_ftab_0(Vs,IdVs,{Tx+1,TxIdx++[Tx],TxAcc++[UV]});
-        error -> make_ftab_0(Vs,IdVs,{Tx,TxIdx++[none],TxAcc})
+        [] -> [];
+        _ -> TxIdx
     end.
 
 get_temp_dir() ->
