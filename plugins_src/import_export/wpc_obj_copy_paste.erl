@@ -59,7 +59,7 @@ do_export(St) ->
             {include_uvs, true},
             {include_colors, true},
             {include_normals, true},
-            {group_per_material, false}],
+            {group_per_material, true}],
     wings_export:export(export_fun(Attr), FileName, Attr, St).
 
 export_fun(Attr) ->
@@ -96,20 +96,28 @@ import_fun(FileName, St2) ->
 
             %% Looking for a preexistent object with that name
             FF = fun(#{id:=Id,name:=Name0}, A) when Name0==Name ->
+                        io:format("Id: ~p Name: ~p\n",[Id,Name0]),
                         [Id|A];
-                    (_, A) -> A
-                 end,
+                    (#{id:=Id,name:=Name0}, A) ->
+                        io:format("NOT -> Id: ~p Name: ~p\n",[Id,Name0]),
+                        A
+                end,
             Ids0 = wings_obj:fold(FF, [], St1),
+            io:format("Name: ~p | Ids0: ~p\n",[Name,Ids0]),
             %% updating shapes in #st{}
             St0 =
                 case Ids0 of
                     [] ->
+                        io:format("Createing new object\n"),
                         Ids = gb_sets:from_list([St1#st.onext]),
                         wings_obj:new(Name, WeNew, St1);
                     [Id0|_] ->
+                        io:format("Using old object: ~p\n",[Id0]),
                         Ids = gb_sets:from_list(Ids0),
-                        St1#st{shapes=gb_trees:enter(Id0,WeNew#we{id=Id0},Shapes0)}
+                        #we{name=Name0,pst=Pst0} = gb_trees:get(Id0,Shapes0),
+                        St1#st{shapes=gb_trees:enter(Id0,WeNew#we{id=Id0,name=Name0,pst=Pst0},Shapes0)}
                 end,
+            io:format("Ids: ~p\n",[Ids]),
             SF = fun(_, #we{id=Id}) -> gb_sets:is_member(Id, Ids) end,
             St = wings_sel:make(SF, body, St0),
             wings_sel_conv:mode(body, St);
