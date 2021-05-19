@@ -2847,18 +2847,17 @@ export(Attr, Filename, #e3d_file{objs=Objs,mat=Mats,creator=Creator}) ->
                 {Filename,filename:rootname(Filename)++Ext}
         end,
     F = open(ExportFile, export),
-    io:format(?__(1,"Exporting  to:")++" ~s~n"++
-                  ?__(2,"for render to:")++" ~s~n", [ExportFile,RenderFile]),
+    io:format(?__(1,"Exporting  to:")++" ~ts~n"++
+                  ?__(2,"for render to:")++" ~ts~n", [ExportFile,RenderFile]),
     CreatorChg = re:replace(Creator,"-","_",[global]),
     CameraName = "x_Camera",
     ConstBgName = "x_ConstBackground",
     Lights = proplists:get_value(lights, Attr, []),
     %%
-    println(F,  "<?xml version=\"1.0\"?>~n"++
-                "<!-- ~s: Exported from ~s -->~n"++
-                "~n"++
-
-                "<scene type=\"triangle\">", [filename:basename(ExportFile), CreatorChg]),
+    uniprintln(F,  "<?xml version=\"1.0\"?>~n"++
+                   "<!-- ~ts: Exported from ~s -->~n"++
+                   "~n"++
+                   "<scene type=\"triangle\">", [filename:basename(ExportFile), CreatorChg]),
     %%
     section(F, "Materials"),
     MatsGb =
@@ -3046,8 +3045,8 @@ export_shinydiffuse_shader(F, Name, Mat, ExportDir, TheBounty) ->
               (_, N) ->
                   N % Ignore old modulators
           end, 1, Modulators),
-    println(F, "<material name=\"~s\">~n"++
-                "<type sval=\"shinydiffusemat\"/>", [Name]),
+    uniprintln(F, "<material name=\"~ts\">~n"++
+                  "<type sval=\"shinydiffusemat\"/>", [Name]),
     DiffuseA = {_,_,_,Opacity} = proplists:get_value(diffuse, OpenGL),
 
     Specular = alpha(proplists:get_value(specular, OpenGL)),
@@ -3153,8 +3152,8 @@ export_glossy_shader(F, Name, Mat, ExportDir, TheBounty) ->
               (_, N) ->
                   N % Ignore old modulators
           end, 1, Modulators),
-    println(F, "<material name=\"~s\">~n"++
-                "<type sval=\"glossy\"/>", [Name]),
+    uniprintln(F, "<material name=\"~ts\">~n"++
+                  "<type sval=\"glossy\"/>", [Name]),
     DiffuseA = {_,_,_,Opacity} = proplists:get_value(diffuse, OpenGL),
 
     Specular = alpha(proplists:get_value(specular, OpenGL)),
@@ -3266,8 +3265,8 @@ export_coatedglossy_shader(F, Name, Mat, ExportDir, TheBounty) ->
               (_, N) ->
                   N % Ignore old modulators
           end, 1, Modulators),
-    println(F, "<material name=\"~s\">~n"++
-               "<type sval=\"coated_glossy\"/>", [Name]),
+    uniprintln(F, "<material name=\"~ts\">~n"++
+                 "<type sval=\"coated_glossy\"/>", [Name]),
     DiffuseA = {_,_,_,Opacity} = proplists:get_value(diffuse, OpenGL),
 
     Specular = alpha(proplists:get_value(specular, OpenGL)),
@@ -3389,8 +3388,8 @@ export_translucent_shader(F, Name, Mat, ExportDir, TheBounty) ->
               (_, N) ->
                   N % Ignore old modulators
           end, 1, Modulators),
-    println(F, "<material name=\"~s\">~n"++
-                "<type sval=\"translucent\"/>", [Name]),
+    uniprintln(F, "<material name=\"~ts\">~n"++
+                  "<type sval=\"translucent\"/>", [Name]),
     DiffuseA = {_,_,_,Opacity} = proplists:get_value(diffuse, OpenGL),
 
     Specular = alpha(proplists:get_value(specular, OpenGL)),
@@ -3512,8 +3511,8 @@ export_glass_shader(F, Name, Mat, ExportDir, TheBounty) ->
               (_, N) ->
                   N % Ignore old modulators
           end, 1, Modulators),
-    println(F, "<material name=\"~s\">~n"++
-                "<type sval=\"glass\"/>", [Name]),
+    uniprintln(F, "<material name=\"~ts\">~n"++
+                  "<type sval=\"glass\"/>", [Name]),
     DiffuseA = {_,_,_,Opacity} = proplists:get_value(diffuse, OpenGL),
 
     Specular = alpha(proplists:get_value(specular, OpenGL)),
@@ -3557,6 +3556,7 @@ export_glass_shader(F, Name, Mat, ExportDir, TheBounty) ->
                    ,[AbsD,TransmitFilter])
 
     end,
+
     DispersionPower =
         proplists:get_value(dispersion_power, TheBounty, ?DEF_DISPERSION_POWER),
     case DispersionPower of
@@ -3617,8 +3617,8 @@ export_rough_glass_shader(F, Name, Mat, ExportDir, TheBounty) ->
               (_, N) ->
                   N % Ignore old modulators
           end, 1, Modulators),
-    println(F, "<material name=\"~s\">~n"++
-                "<type sval=\"rough_glass\"/>", [Name]),
+    uniprintln(F, "<material name=\"~ts\">~n"++
+                  "<type sval=\"rough_glass\"/>", [Name]),
     DiffuseA = {_,_,_,Opacity} = proplists:get_value(diffuse, OpenGL),
 
     Specular = alpha(proplists:get_value(specular, OpenGL)),
@@ -3660,6 +3660,7 @@ export_rough_glass_shader(F, Name, Mat, ExportDir, TheBounty) ->
                     "        <transmit_filter fval=\"~.10f\"/>~n"
                     "        <roughness fval=\"~.10f\"/>~n",[AbsD,TransmitFilter,Roughness])
     end,
+
     DispersionPower =
         proplists:get_value(dispersion_power, TheBounty, ?DEF_DISPERSION_POWER),
     case DispersionPower of
@@ -3722,8 +3723,8 @@ export_lightmat_shader(F, Name, Mat, ExportDir, TheBounty) ->
               (_, N) ->
                   N % Ignore old modulators
           end, 1, Modulators),
-    println(F, "<material name=\"~s\">~n"++
-                "<type sval=\"light_mat\"/>", [Name]),
+    uniprintln(F, "<material name=\"~ts\">~n"++
+                  "<type sval=\"light_mat\"/>", [Name]),
     _DiffuseA = {_,_,_,Opacity} = proplists:get_value(diffuse, OpenGL),
 
     DefLightmatColor = def_lightmat_color(proplists:get_value(diffuse, OpenGL)),
@@ -3821,8 +3822,8 @@ export_blend_mat_shader(F, Name, Mat, ExportDir, TheBounty) ->
               (_, N) ->
                   N % Ignore old modulators
           end, 1, Modulators),
-    println(F, "<material name=\"~s\">~n"++
-                "<type sval=\"blend_mat\"/>", [Name]),
+    uniprintln(F, "<material name=\"~ts\">~n"++
+                  "<type sval=\"blend_mat\"/>", [Name]),
     DiffuseA = {_,_,_,Opacity} = proplists:get_value(diffuse, OpenGL),
 
     Specular = alpha(proplists:get_value(specular, OpenGL)),
@@ -3848,9 +3849,9 @@ export_blend_mat_shader(F, Name, Mat, ExportDir, TheBounty) ->
 
     Blend_Value = proplists:get_value(blend_value, TheBounty, ?DEF_BLEND_VALUE),
 
-    println(F, "  <material1 sval=\"""w_""\~s\"/>~n"
-            "        <material2 sval=\"""w_""\~s\"/>~n"
-            "        <blend_value fval=\"~.10f\"/>~n",
+    uniprintln(F, "  <material1 sval=\"""w_""\~ts\"/>~n"
+                  "        <material2 sval=\"""w_""\~ts\"/>~n"
+                  "        <blend_value fval=\"~.10f\"/>~n",
             [Blend_Mat1,Blend_Mat2,Blend_Value]),
     foldl(fun ({modulator,Ps}=M, N) when is_list(Ps) ->
                   case export_modulator(F, [Name,$_,format(N)],
@@ -3908,14 +3909,14 @@ export_texture(F, Name, Maps, ExportDir, {modulator,Ps}) when is_list(Ps) ->
     end.
 
 export_texture(F, Name, image, Filename) ->
-    println(F, "<texture name=\"~s\">~n"++
-                "    <filename sval=\"~s\"/>~n"++
-                "<type sval=\"image\"/>~n" ++
-                "</texture>", [Name,Filename]);
+    uniprintln(F, "<texture name=\"~ts\">~n"++
+                  "    <filename sval=\"~ts\"/>~n"++
+                  "<type sval=\"image\"/>~n" ++
+                  "</texture>", [Name,Filename]);
 export_texture(F, Name, Type, Ps) ->
     %% Start Work-Around for TheBounty Texture Name TEmytex Requirement for Noise Volume
     TextureNameChg = re:replace(Name,"w_TEmytex_1","TEmytex",[global]),
-    println(F, "<texture name=\"~s\"> <type sval=\"~s\"/>", [TextureNameChg,format(Type)]),
+    uniprintln(F, "<texture name=\"~ts\"> <type sval=\"~s\"/>", [TextureNameChg,format(Type)]),
     %% End Work-Around for TheBounty Texture Name TEmytex Requirement for Noise Volume
 
     Color1 = proplists:get_value(color1, Ps, ?DEF_MOD_COLOR1),
@@ -4040,8 +4041,8 @@ export_modulator(F, Texname, Maps, {modulator,Ps}, _Opacity) when is_list(Ps) ->
 
             UpperLayerName =
                 case AlphaIntensity of
-                    stencil -> re:replace(Texname,"_2","_1",[global]);
-                    _-> re:replace(Texname,"_1","_2",[global])
+                    stencil -> re:replace(Texname,"_2","_1",[global,unicode]);
+                    _-> re:replace(Texname,"_1","_2",[global,unicode])
                 end,
 
 %%% End Change Number from Texname for UpperLayer
@@ -4050,7 +4051,7 @@ export_modulator(F, Texname, Maps, {modulator,Ps}, _Opacity) when is_list(Ps) ->
 
             StencilInputName =
                 case AlphaIntensity of
-                    stencil -> re:replace(Texname,"_2","_3",[global]);
+                    stencil -> re:replace(Texname,"_2","_3",[global,unicode]);
                     _-> ""
                 end,
 
@@ -4060,7 +4061,7 @@ export_modulator(F, Texname, Maps, {modulator,Ps}, _Opacity) when is_list(Ps) ->
 
             StencilUpperLayerName2 =
                 case AlphaIntensity of
-                    stencil -> re:replace(Texname,"_1","_2",[global]);
+                    stencil -> re:replace(Texname,"_1","_2",[global,unicode]);
                     _-> ""
                 end,
 
@@ -4106,7 +4107,7 @@ export_modulator(F, Texname, Maps, {modulator,Ps}, _Opacity) when is_list(Ps) ->
                 end,
 
 %% Start Identify Modulator # (w_default_Name_1 or w_default_Name_2)
-            Split=re:split(Texname,"_",[{return, list}]),
+            Split=re:split(Texname,"_",[{return, list},unicode]),
             Num=lists:last(Split),
             UpperLayer =
                 case {Num,Mode,AlphaIntensity} of
@@ -4182,12 +4183,12 @@ export_modulator(F, Texname, Maps, {modulator,Ps}, _Opacity) when is_list(Ps) ->
             case AlphaIntensity of
                 stencil ->
 %%Stencil Export Start
-                    println(F, " <!--Start Stencil Section Here-->
+                    uniprintln(F, " <!--Start Stencil Section Here-->
 
                                 <list_element>
                                 <element sval=\"shader_node\"/>
-                                <name sval=\"~s\"/>
-                                <input sval=\"~s_mod\"/>
+                                <name sval=\"~ts\"/>
+                                <input sval=\"~ts_mod\"/>
 
                                 <noRGB bval=\"true\"/>
                                 <stencil bval=\"true\"/>
@@ -4199,10 +4200,10 @@ export_modulator(F, Texname, Maps, {modulator,Ps}, _Opacity) when is_list(Ps) ->
 
                                 <list_element>
                                 <element sval=\"shader_node\"/>
-                                <name sval=\"~s_mod\"/>
+                                <name sval=\"~ts_mod\"/>
                                 "++TexCo++"
                                 <mapping sval=\"plain\"/>
-                                <texture sval=\"~s\"/>
+                                <texture sval=\"~ts\"/>
                                 <type sval=\"texture_mapper\"/>
                                 <bump_strength fval=\"~.3f\"/>
                                 </list_element>
@@ -4223,11 +4224,11 @@ export_modulator(F, Texname, Maps, {modulator,Ps}, _Opacity) when is_list(Ps) ->
 %%Stencil Export End
                 _ ->
 
-                    println(F, "  "++ShaderName++"
+                    uniprintln(F, "  "++ShaderName++"
                                 <list_element>
                                 <element sval=\"shader_node\"/>
-                                <name sval=\"~s\"/>
-                                <input sval=\"~s_mod\"/>
+                                <name sval=\"~ts\"/>
+                                <input sval=\"~ts_mod\"/>
                                 "++UpperLayer++"
                                 "++UpperColor++"
                                 "++UseAlpha++"
@@ -4238,10 +4239,10 @@ export_modulator(F, Texname, Maps, {modulator,Ps}, _Opacity) when is_list(Ps) ->
                                 </list_element>
                                 <list_element>
                                 <element sval=\"shader_node\"/>
-                                <name sval=\"~s_mod\"/>
+                                <name sval=\"~ts_mod\"/>
                                 "++TexCo++"
                                 <mapping sval=\"plain\"/>
-                                <texture sval=\"~s\"/>
+                                <texture sval=\"~ts\"/>
                                 <type sval=\"texture_mapper\"/>
                                 <scale x=\"~.3f\" y=\"~.3f\" z=\"~.3f\"/>
                                 <bump_strength fval=\"~.3f\"/>
@@ -4325,11 +4326,12 @@ export_object_1(F, NameStr, Mesh0=#e3d_mesh{he=He0}, DefaultMaterial, MatPs, Id)
                                      if AutosmoothAngle == 0.0 -> false;
                                         true -> ?DEF_AUTOSMOOTH end),
 
+
     %% Pre-process mesh
     Mesh1 = #e3d_mesh{} =
         case {He0,UseHardness} of
             {[_|_],true} ->
-                io:format(?__(1,"Mesh ~s: slitting hard edges..."), [NameStr]),
+                io:format(?__(1,"Mesh ~ts: slitting hard edges..."), [NameStr]),
                 M1 = e3d_mesh:slit_hard_edges(Mesh0, [slit_end_vertices]),
                 io:format(?__(2,"done")++"~n"),
                 M1;
@@ -4337,15 +4339,15 @@ export_object_1(F, NameStr, Mesh0=#e3d_mesh{he=He0}, DefaultMaterial, MatPs, Id)
         end,
 
 
-    io:format(?__(3,"Mesh ~s: triangulating..."), [NameStr]),
+    io:format(?__(3,"Mesh ~ts: triangulating..."), [NameStr]),
     #e3d_mesh{fs=Fs,vs=Vs,vc=Vc,tx=Tx} = e3d_mesh:triangulate(Mesh1),
     io:format(?__(4,"done")++"~n"),
-    io:format(?__(5,"Mesh ~s: exporting..."), [NameStr]),
+    io:format(?__(5,"Mesh ~ts: exporting..."), [NameStr]),
     %%
 
     %% Add Export Object Name Start
 
-    println(F, "<!--Object Name ~s, Object # ~w-->", [NameStr,Id]),
+    uniprintln(F, "<!--Object Name ~ts, Object # ~w-->", [NameStr,Id]),
 
     %% Add Export Object Name End
 
@@ -4404,7 +4406,7 @@ export_object_1(F, NameStr, Mesh0=#e3d_mesh{he=He0}, DefaultMaterial, MatPs, Id)
 
         meshlight ->
             println(F," "),
-            println(F, "<light name=\"~s\">",[NameStr]),
+            uniprintln(F, "<light name=\"~ts\">",[NameStr]),
 
             export_rgb(F, color, proplists:get_value(meshlight_color, TheBounty, Meshlight_Color)),
 
@@ -4420,7 +4422,7 @@ export_object_1(F, NameStr, Mesh0=#e3d_mesh{he=He0}, DefaultMaterial, MatPs, Id)
 
         lightportal ->
             println(F," "),
-            println(F, "<light name=\"~s\">",[NameStr]),
+            uniprintln(F, "<light name=\"~ts\">",[NameStr]),
             println(F, "<type sval=\"bgPortalLight\"/>"),
             println(F, "<power fval=\"~.10f\"/>",[Lightportal_Power]),
             println(F, "<samples ival=\"~w\"/>",[Lightportal_Samples]),
@@ -4560,9 +4562,8 @@ export_faces(F, [#e3d_face{mat=[Mat|_],tx=Tx,vs=[A,B,C],vc=VCols}|T],
                              [length(VCols)]),
                    ""
            end,
-    println(F, [Shader, "        <f a=\"",format(A),
-                "\" b=\"",format(B),"\" c=\"",format(C),"\"", UVIndices,
-                VCol]),
+    uniprintln(F, "~ts    <f a=\"~s\" b=\"~s\" c=\"~s\"~s~s",
+               [Shader,format(A),format(B),format(C),UVIndices,VCol]),
 
 
     export_faces(F, T, DefaultMaterial, TxT, VColT).
@@ -4587,7 +4588,7 @@ export_light(F, Name, point, OpenGL, TheBounty) ->
     Position = proplists:get_value(position, OpenGL, {0.0,0.0,0.0}),
     Diffuse = proplists:get_value(diffuse, OpenGL, {1.0,1.0,1.0,1.0}),
     Type = proplists:get_value(type, TheBounty, ?DEF_POINT_TYPE),
-    println(F,"<light name=\"~s\"> <type sval=\"~w\"/>  <power fval=\"~.3f\"/> ",
+    uniprintln(F,"<light name=\"~ts\"> <type sval=\"~w\"/>  <power fval=\"~.3f\"/> ",
             [Name,Type,Power]),
     case Type of
         pointlight ->
@@ -4630,7 +4631,7 @@ export_light(F, Name, infinite, OpenGL, TheBounty) ->
     %% Directional Infinite Light Start
     case Type of
         directional when Power > 0.0 ->
-            println(F,"<light name=\"~s\"> <type sval=\"~w\"/> "++
+            uniprintln(F,"<light name=\"~ts\"> <type sval=\"~w\"/> "++
                         "<power fval=\"~.3f\"/>",
                     [Name, Type, Power]),
 
@@ -4659,7 +4660,7 @@ export_light(F, Name, infinite, OpenGL, TheBounty) ->
         %% Directional Infinite Light End
         %% Sunlight Infinite Light Start
         sunlight when Power > 0.0 ->
-            println(F,"<light name=\"~s\"> <type sval=\"~w\"/> "++
+            uniprintln(F,"<light name=\"~ts\"> <type sval=\"~w\"/> "++
                         "<power fval=\"~.10f\"/> <samples ival=\"~w\"/> <angle fval=\"~.3f\"/>",
                     [Name, Type, Power, SunSamples, SunAngle]),
 
@@ -4682,7 +4683,7 @@ export_light(F, Name, spot, OpenGL, TheBounty) ->
     ConeAngle = proplists:get_value(cone_angle, OpenGL, ?DEF_CONE_ANGLE),
     Diffuse = proplists:get_value(diffuse, OpenGL, {1.0,1.0,1.0,1.0}),
     Type = proplists:get_value(type, TheBounty, ?DEF_SPOT_TYPE),
-    println(F,"<light name=\"~s\"> <power fval=\"~.3f\"/> ",
+    uniprintln(F,"<light name=\"~ts\"> <power fval=\"~.3f\"/> ",
             [Name,Power]),
     case Type of
         spotlight ->
@@ -4718,8 +4719,8 @@ export_light(F, Name, spot, OpenGL, TheBounty) ->
             SpotIESSamples = proplists:get_value(spot_ies_samples, TheBounty,
                                                  ?DEF_SPOT_IES_SAMPLES),
 
-            println(F, "<type sval=\"ieslight\"/> <cone_angle fval=\"~.3f\"/> <soft_shadows bval=\"~s\"/> <samples ival=\"~w\"/>~n"++
-                        "       <file sval=\"~s\"/>",
+            uniprintln(F, "<type sval=\"ieslight\"/> <cone_angle fval=\"~.3f\"/> <soft_shadows bval=\"~s\"/> <samples ival=\"~w\"/>~n"++
+                        "       <file sval=\"~ts\"/>",
                     [ConeAngle,SpotSoftShadows,SpotIESSamples,SpotIESFilename])
     end,
     export_pos(F, from, Position),
@@ -4754,7 +4755,7 @@ export_light(F, Name, ambient, _OpenGL, TheBounty) ->
             Bg;
         hemilight -> Bg;
         pathlight when Power > 0.0 ->
-            println(F,"<light type sval=\"~w\" name sval=\"~s\" power fval=\"~.3f\"",
+            uniprintln(F,"<light type sval=\"~w\" name sval=\"~ts\" power fval=\"~.3f\"",
                     [Type,Name,Power]),
             UseQMC = proplists:get_value(use_QMC, TheBounty,
                                          ?DEF_USE_QMC),
@@ -4824,7 +4825,7 @@ export_light(F, Name, ambient, _OpenGL, TheBounty) ->
             Bg;
         pathlight -> Bg;
         globalphotonlight ->
-            println(F,"<light type sval=\"~w\" name sval=\"~s\"", [Type,Name]),
+            uniprintln(F,"<light type sval=\"~w\" name sval=\"~ts\"", [Type,Name]),
             GplPhotons = proplists:get_value(
                            globalphotonlight_photons, TheBounty,
                            ?DEF_GLOBALPHOTONLIGHT_PHOTONS),
@@ -4867,9 +4868,9 @@ export_light(F, Name, area, OpenGL, TheBounty) ->
                   Pwr ->
                       NameI = Name++"_"++integer_to_list(I),
                       [A,B,C,D] = quadrangle_vertices(VsF, VsT),
-                      println(F, "<light name=\"~s\"> <type sval=\"arealight\"/>"
-                              "<power fval=\"~.3f\"/>~n"
-                              "<samples ival=\"~w\"/>"++
+                      uniprintln(F, "<light name=\"~ts\"> <type sval=\"arealight\"/>"
+                                    "<power fval=\"~.3f\"/>~n"
+                                    "<samples ival=\"~w\"/>"++
                                   if Dummy -> "";
                                      true ->
                                           ""
@@ -4932,7 +4933,7 @@ export_camera(F, Name, Attr) ->
     %% TheBounty focal plane is 1 unit wide.
     FocalDist = 0.5 / ((Width/Height) * math:tan(limit_fov(Fov)*0.5*Ro)),
     Aperture = proplists:get_value(aperture, Attr),
-    println(F, "<camera name=\"~s\"> "++
+    uniprintln(F, "<camera name=\"~ts\"> "++
                 "<resx ival=\"~w\"/> <resy ival=\"~w\"/> <focal fval=\"~.10f\"/>"++
                 if Aperture > 0.0 ->
                         "~n        <dof_distance fval=\"~.10f\"/> <aperture fval=\"~.10f\"/>"
@@ -5018,7 +5019,7 @@ export_background(F, Name, Ps) ->
 
             AmbientCausticPhotons = proplists:get_value(ambient_causticphotons, TheBounty, ?DEF_AMBIENT_CAUSTICPHOTONS),
 
-            print(F, "<background name=\"~s\">",
+            uniprintln(F, "<background name=\"~ts\">",
                 [Name]),
 
             println(F, "<type sval=\"~s\"/>",
@@ -5028,6 +5029,7 @@ export_background(F, Name, Ps) ->
             export_rgb(F, color, BgColor),
             ConstantBackPower = proplists:get_value(power, TheBounty,
                 ?DEF_POWER),
+
 
 %% Add Enlight Constant Background Start
             case proplists:get_value(background_enlight, TheBounty,
@@ -5262,13 +5264,14 @@ export_background(F, Name, Ps) ->
 
             AmbientCausticPhotons = proplists:get_value(ambient_causticphotons, TheBounty, ?DEF_AMBIENT_CAUSTICPHOTONS),
 
-            print(F, "<texture name=\"world_texture\">~n"
-            "        <filename sval=\"~s\"/>~n"
+
+            uniprint(F, "<texture name=\"world_texture\">~n"
+            "        <filename sval=\"~ts\"/>~n"
             "        <interpolate sval=\"bilinear\"/>~n"
             "        <type sval=\"image\"/>~n"
             "        </texture>",
                 [BgFname]),
-            println(F, "~n <background name=\"~s\"> <type sval=\"textureback\"/> ",
+            uniprintln(F, "~n <background name=\"~ts\"> <type sval=\"textureback\"/> ",
                 [Name]),
             println(F, "<power fval=\"~w\"/>~n"
             "<mapping sval=\"~s\"/>~n"
@@ -5307,13 +5310,13 @@ export_background(F, Name, Ps) ->
 
             AmbientCausticPhotons = proplists:get_value(ambient_causticphotons, TheBounty, ?DEF_AMBIENT_CAUSTICPHOTONS),
 
-            print(F, "<texture name=\"world_texture\">~n"
-            "        <filename sval=\"~s\"/>~n"
+            uniprintln(F, "<texture name=\"world_texture\">~n"
+            "        <filename sval=\"~ts\"/>~n"
             "        <interpolate sval=\"bilinear\"/>~n"
             "        <type sval=\"image\"/>~n"
             "        </texture>",
                 [BgFname]),
-            println(F, "~n <background name=\"~s\"> <type sval=\"textureback\"/> ",
+            uniprintln(F, "~n <background name=\"~ts\"> <type sval=\"textureback\"/> ",
                 [Name]),
 
             println(F, " <power fval=\"~.3f\"/>~n"
@@ -5538,7 +5541,7 @@ export_render(F, CameraName, BackgroundName, Outfile, Attr) ->
                  format(ExrFlagCompression)];
             _ -> ""
         end,
-    println(F, "<render> <camera_name sval=\"~s\"/> "
+    uniprintln(F, "<render> <camera_name sval=\"~ts\"/> "
     "<filter_type sval=\"~s\"/>"
     "<AA_passes ival=\"~w\"/>~n"
     "        <AA_threshold fval=\"~.10f\"/>~n"
@@ -5549,7 +5552,7 @@ export_render(F, CameraName, BackgroundName, Outfile, Attr) ->
             _ -> ""
         end++
         "        <clamp_rgb bval=\"~s\"/>~n"
-        "    <background_name sval=\"~s\"/>~n"++
+        "    <background_name sval=\"~ts\"/>~n"++
         case RenderFormat of
             tga -> "";
             _   -> "    <output_type sval=\"~s\"/>~n"
@@ -5560,7 +5563,7 @@ export_render(F, CameraName, BackgroundName, Outfile, Attr) ->
         end++
 
         "    <width ival=\"~w\"/> <height ival=\"~w\"/>~n"
-        "    <outfile sval=\"~s\"/>~n"
+        "    <outfile sval=\"~ts\"/>~n"
         "    <indirect_samples sval=\"0\"/>~n"
         "    <indirect_power sval=\"1.0\"/>~n"
         "    <exposure fval=\"~.10f\"/>~n"++
@@ -5594,7 +5597,7 @@ export_render(F, CameraName, BackgroundName, Outfile, Attr) ->
 %%%
 
 open(Filename, export) ->
-    case file:open(Filename, [write,raw,delayed_write]) of
+    case file:open(Filename, [write,{encoding, utf8},delayed_write]) of
         {ok, F} ->
             F;
         Error ->
@@ -5635,6 +5638,14 @@ println(F, Format, Args) ->
         Error ->
             erlang:error(Error, [F,Format,Args])
     end.
+
+uniprint(F, Format, Args) ->
+    UnicodeText = io_lib:format(Format, Args),
+    io:put_chars(F, unicode:characters_to_binary(UnicodeText)).
+
+uniprintln(F, Format, Args) ->
+    UnicodeText = io_lib:format(Format, Args) ++ io_lib:nl(),
+    io:put_chars(F, unicode:characters_to_binary(UnicodeText)).
 
 close(F) ->
     case file:close(F) of
