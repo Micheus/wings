@@ -1518,7 +1518,7 @@ modulator_dialog({modulator,Ps}, Maps, M) when is_list(Ps) ->
                                 {?__(94,"Voronoi F3"),voronoi_f3},
                                 {?__(95,"Voronoi F4"),voronoi_f4},
                                 {?__(96,"Voronoi F1F2"),voronoi_f2f1}
-                            ],DistortionType,[key({M,distotion_type})]},
+                            ],DistortionType,[key({M,distortion_type})]},
                             %% End Distorted Noise Type Select
                             {label,?__(107,"Noise Size")},{text,DistortionNoiseSize,[key({M,distortion_noisesize}), range(distortion_noisesize)]},
                             {label,?__(108,"Distortion")},{text,DistortionIntensity,[key({M,distortion_intensity}), range(distortion_intensity)]}
