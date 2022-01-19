@@ -14,15 +14,15 @@
 %%
 
 -module(wpc_thebounty).
--export([init/0,menu/2,dialog/2,command/2]).
+-export([init/0,menu/2,dialog/2,has_dialog/1,command/2]).
 
 %% Debug exports
 %% -export([now_diff_1/1]).
 
--include_lib("kernel/include/file.hrl").
+%%-include_lib("kernel/include/file.hrl").
+-include_lib("wings/src/wings.hrl").
 -include_lib("wings/e3d/e3d.hrl").
 -include_lib("wings/e3d/e3d_image.hrl").
--include_lib("wings/src/wings.hrl").
 
 -import(lists, [reverse/1,reverse/2,sort/1,keydelete/3,
                 foreach/2,foldl/3,foldr/3]).
@@ -522,6 +522,21 @@ command({edit,{plugin_preferences,?TAG}}, St) ->
 command(_Spec, _St) ->
     %% erlang:display({?MODULE,?LINE,_Spec}),
     next.
+
+%%% checking for Material / Light Dialogs support
+has_dialog(Kind) when is_atom(Kind) ->
+    case get_var(dialogs) of
+        false-> false;
+        _ ->
+            %% these are the dialogs handled by the plugin
+            Handled = [material_editor_setup, material_editor_result,
+                       light_editor_setup, light_editor_result],
+            case lists:member(Kind,Handled) of
+                true -> {?__(1,"TheBounty"),?TAG};
+                false -> false
+            end
+    end;
+has_dialog(_) -> false.
 
 dialog({material_editor_setup,Name,Mat}, Dialog) ->
     case is_plugin_active(edit) of
