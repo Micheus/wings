@@ -1898,18 +1898,19 @@ save_img_to_lib(Dir, [_|As], [Opt|Opts], Acc) ->
 
 load_draw_options() ->
     ShdrLibDir = filename:join(wings_u:basedir(user_data),?TEXTURE_SHADER_LIB),
-    Add = fun(Filename, Acc) ->
+    Add = fun([], Acc) -> Acc;
+        (Filename, Acc) ->
             Name = filename:basename(Filename,".slib"),
-            gb_sets:add({Name,list_to_atom(Name)},Acc)
+            [{Name,list_to_atom(Name)}|Acc]
         end,
-    Names = filelib:fold_files(ShdrLibDir, [".slib"], false, Add, gb_sets:empty()),
-    case gb_sets:size(Names) of
+    Names = filelib:fold_files(ShdrLibDir, ".slib", false, Add, []),
+    case length(Names) of
         0 ->
             wings_u:message(?__(3,"No autouv shader settings is available in the library"));
         _ ->
-            [{_,Default}|_] = Items = gb_sets:to_list(Names),
+            [{_,Default}|_] = Names,
             wings_dialog:ask(?__(1,"Load AutoUV Shader"),
-                             [{?__(2,"Name"),{menu,Items,Default,[]}}],
+                             [{?__(2,"Name"),{menu,Names,Default,[]}}],
                             fun(Name)->
                                 case validate_loaded_lib(Name) of
                                     false -> ignore;
