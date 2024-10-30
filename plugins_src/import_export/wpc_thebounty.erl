@@ -2341,16 +2341,16 @@ export_dialog_qs(Op, Attr) ->
             aperture ->
                 {Value0,_} = f_stop_find(Value,ApertureList),
                 wings_dialog:set_value(aperture_idx, Value0, Store),
-                wings_dialog:enable(bokeh_use_QMC, Value =/= 0.0, Store),
-                wings_dialog:enable(?KEY(pnl_dof_type), Value =/= 0.0, Store),
-                wings_dialog:enable(?KEY(pnl_dof_sliders), Value =/= 0.0, Store);
+                wings_dialog:enable(bokeh_use_QMC, abs(Value) =/= +0.0, Store),
+                wings_dialog:enable(?KEY(pnl_dof_type), abs(Value) =/= +0.0, Store),
+                wings_dialog:enable(?KEY(pnl_dof_sliders), abs(Value) =/= +0.0, Store);
             aperture_idx ->
                 if ((Value =/= "") and (Value =/= Custom)) ->
                         {_,Value0} = f_stop_find(Value,ApertureList),
                         wings_dialog:set_value(aperture, Value0, Store);
                     true -> ok
                 end,
-                Enabled = wings_dialog:get_value(aperture, Store) =/= 0.0,
+                Enabled = abs(wings_dialog:get_value(aperture, Store)) > +0.0,
                 wings_dialog:enable(bokeh_use_QMC, Enabled, Store),
                 wings_dialog:enable(?KEY(pnl_dof_type), Enabled, Store),
                 wings_dialog:enable(?KEY(pnl_dof_sliders), Enabled, Store);
@@ -3105,8 +3105,8 @@ export_shinydiffuse_shader(F, Name, Mat, ExportDir, TheBounty) ->
                                        -math:log(max(AbsB, ?NONZERO))/AbsD})
     end,
     DispersionPower = proplists:get_value(dispersion_power, TheBounty, ?DEF_DISPERSION_POWER),
-    case DispersionPower of
-        0.0 -> ok;
+    case abs(DispersionPower) of
+        +0.0 -> ok;
         _   ->
             DispersionSamples = proplists:get_value(dispersion_samples, TheBounty, ?DEF_DISPERSION_SAMPLES),
             DispersionJitter = proplists:get_value(dispersion_jitter, TheBounty, ?DEF_DISPERSION_JITTER),
@@ -3212,8 +3212,8 @@ export_glossy_shader(F, Name, Mat, ExportDir, TheBounty) ->
     end,
     DispersionPower =
         proplists:get_value(dispersion_power, TheBounty, ?DEF_DISPERSION_POWER),
-    case DispersionPower of
-        0.0 -> ok;
+    case abs(DispersionPower) of
+        +0.0 -> ok;
         _   ->
             DispersionSamples =
                 proplists:get_value(dispersion_samples, TheBounty,
@@ -3332,8 +3332,8 @@ export_coatedglossy_shader(F, Name, Mat, ExportDir, TheBounty) ->
     end,
     DispersionPower =
         proplists:get_value(dispersion_power, TheBounty, ?DEF_DISPERSION_POWER),
-    case DispersionPower of
-        0.0 -> ok;
+    case abs(DispersionPower) of
+        +0.0 -> ok;
         _   ->
             DispersionSamples =
                 proplists:get_value(dispersion_samples, TheBounty,
@@ -3469,8 +3469,8 @@ export_translucent_shader(F, Name, Mat, ExportDir, TheBounty) ->
 
     DispersionPower =
         proplists:get_value(dispersion_power, TheBounty, ?DEF_DISPERSION_POWER),
-    case DispersionPower of
-        0.0 -> ok;
+    case abs(DispersionPower) of
+        +0.0 -> ok;
         _   ->
             DispersionSamples =
                 proplists:get_value(dispersion_samples, TheBounty,
@@ -3574,8 +3574,8 @@ export_glass_shader(F, Name, Mat, ExportDir, TheBounty) ->
 
     DispersionPower =
         proplists:get_value(dispersion_power, TheBounty, ?DEF_DISPERSION_POWER),
-    case DispersionPower of
-        0.0 -> ok;
+    case abs(DispersionPower) of
+        +0.0 -> ok;
         _   ->
             DispersionSamples =
                 proplists:get_value(dispersion_samples, TheBounty,
@@ -3678,8 +3678,8 @@ export_rough_glass_shader(F, Name, Mat, ExportDir, TheBounty) ->
 
     DispersionPower =
         proplists:get_value(dispersion_power, TheBounty, ?DEF_DISPERSION_POWER),
-    case DispersionPower of
-        0.0 -> ok;
+    case abs(DispersionPower) of
+        +0.0 -> ok;
         _   ->
             DispersionSamples =
                 proplists:get_value(dispersion_samples, TheBounty,
@@ -3864,8 +3864,8 @@ export_blend_mat_shader(F, Name, Mat, ExportDir, TheBounty) ->
 
     Blend_Value = proplists:get_value(blend_value, TheBounty, ?DEF_BLEND_VALUE),
 
-    uniprintln(F, "  <material1 sval=\"""w_""\~ts\"/>~n"
-                  "        <material2 sval=\"""w_""\~ts\"/>~n"
+    uniprintln(F, "  <material1 sval=\"w_\~ts\"/>~n"
+                  "        <material2 sval=\"w_\~ts\"/>~n"
                   "        <blend_value fval=\"~.10f\"/>~n",
             [Blend_Mat1,Blend_Mat2,Blend_Value]),
     foldl(fun ({modulator,Ps}=M, N) when is_list(Ps) ->
@@ -4154,36 +4154,36 @@ export_modulator(F, Texname, Maps, {modulator,Ps}, _Opacity) when is_list(Ps) ->
 
             TextureShaderType =
                 case {Normal,TextureType,AlphaIntensity} of
-                    {0.0,diffusetexture,off} -> "<diffuse_shader";
-                    {0.0,mirrorcolortexture,off} -> "<mirror_color_shader";
-                    {0.0,mirrortexture,off} -> "<mirror_shader";
-                    {0.0,glossytexture,off} -> "<glossy_shader";
-                    {0.0,glossyreflecttexture,off} -> "<diffuse_reflect_shader";
-                    {0.0,transparencytexture,off} -> "<transparency_shader";
-                    {0.0,translucencytexture,off} -> "<translucency_shader";
-                    {0.0,bumptexture,off} -> "<bump_shader";
+                    {+0.0,diffusetexture,off} -> "<diffuse_shader";
+                    {+0.0,mirrorcolortexture,off} -> "<mirror_color_shader";
+                    {+0.0,mirrortexture,off} -> "<mirror_shader";
+                    {+0.0,glossytexture,off} -> "<glossy_shader";
+                    {+0.0,glossyreflecttexture,off} -> "<diffuse_reflect_shader";
+                    {+0.0,transparencytexture,off} -> "<transparency_shader";
+                    {+0.0,translucencytexture,off} -> "<translucency_shader";
+                    {+0.0,bumptexture,off} -> "<bump_shader";
 
-                    {0.0,diffusetexture,transparency} -> "<transparency_shader";
-                    {0.0,mirrorcolortexture,transparency} -> "<transparency_shader";
-                    {0.0,mirrortexture,transparency} -> "<transparency_shader";
-                    {0.0,glossytexture,transparency} -> "<transparency_shader";
-                    {0.0,glossyreflecttexture,transparency} -> "<transparency_shader";
-                    {0.0,transparencytexture,transparency} -> "<transparency_shader";
+                    {+0.0,diffusetexture,transparency} -> "<transparency_shader";
+                    {+0.0,mirrorcolortexture,transparency} -> "<transparency_shader";
+                    {+0.0,mirrortexture,transparency} -> "<transparency_shader";
+                    {+0.0,glossytexture,transparency} -> "<transparency_shader";
+                    {+0.0,glossyreflecttexture,transparency} -> "<transparency_shader";
+                    {+0.0,transparencytexture,transparency} -> "<transparency_shader";
 
-                    {0.0,diffusetexture,diffusealphatransparency} -> "<diffuse_shader";
-                    {0.0,transparencytexture,diffusealphatransparency} -> "<diffuse_shader";
+                    {+0.0,diffusetexture,diffusealphatransparency} -> "<diffuse_shader";
+                    {+0.0,transparencytexture,diffusealphatransparency} -> "<diffuse_shader";
 
-                    {0.0,diffusetexture,translucency} -> "<translucency_shader";
-                    {0.0,glossytexture,translucency} -> "<translucency_shader";
-                    {0.0,translucencytexture,translucency} -> "<translucency_shader";
+                    {+0.0,diffusetexture,translucency} -> "<translucency_shader";
+                    {+0.0,glossytexture,translucency} -> "<translucency_shader";
+                    {+0.0,translucencytexture,translucency} -> "<translucency_shader";
 
-                    {0.0,diffusetexture,specularity} -> "<mirror_shader";
-                    {0.0,mirrorcolortexture,specularity} -> "<mirror_shader";
-                    {0.0,mirrortexture,specularity} -> "<mirror_shader";
-                    {0.0,glossytexture,specularity} -> "<mirror_shader";
-                    {0.0,glossyreflecttexture,specularity} -> "<mirror_shader";
+                    {+0.0,diffusetexture,specularity} -> "<mirror_shader";
+                    {+0.0,mirrorcolortexture,specularity} -> "<mirror_shader";
+                    {+0.0,mirrortexture,specularity} -> "<mirror_shader";
+                    {+0.0,glossytexture,specularity} -> "<mirror_shader";
+                    {+0.0,glossyreflecttexture,specularity} -> "<mirror_shader";
 
-                    {0.0,diffusetexture,stencil} -> "<diffuse_shader";
+                    {+0.0,diffusetexture,stencil} -> "<diffuse_shader";
                     _ -> "<bump_shader"
                 end,
 
@@ -4338,7 +4338,7 @@ export_object_1(F, NameStr, Mesh0=#e3d_mesh{he=He0}, DefaultMaterial, MatPs, Id)
         proplists:get_value(autosmooth_angle, TheBounty, ?DEF_AUTOSMOOTH_ANGLE),
 
     Autosmooth = proplists:get_value(autosmooth, TheBounty,
-                                     if AutosmoothAngle == 0.0 -> false;
+                                     if abs(AutosmoothAngle) == +0.0 -> false;
                                         true -> ?DEF_AUTOSMOOTH end),
 
 
@@ -4645,7 +4645,7 @@ export_light(F, Name, infinite, OpenGL, TheBounty) ->
 
     %% Directional Infinite Light Start
     case Type of
-        directional when Power > 0.0 ->
+        directional when Power > +0.0 ->
             uniprintln(F,"<light name=\"~ts\"> <type sval=\"~w\"/> "++
                         "<power fval=\"~.3f\"/>",
                     [Name, Type, Power]),
@@ -4674,7 +4674,7 @@ export_light(F, Name, infinite, OpenGL, TheBounty) ->
 
         %% Directional Infinite Light End
         %% Sunlight Infinite Light Start
-        sunlight when Power > 0.0 ->
+        sunlight when Power > +0.0 ->
             uniprintln(F,"<light name=\"~ts\"> <type sval=\"~w\"/> "++
                         "<power fval=\"~.10f\"/> <samples ival=\"~w\"/> <angle fval=\"~.3f\"/>",
                     [Name, Type, Power, SunSamples, SunAngle]),
@@ -4751,7 +4751,7 @@ export_light(F, Name, ambient, _OpenGL, TheBounty) ->
     Power = proplists:get_value(power, TheBounty, ?DEF_POWER),
     Bg = proplists:get_value(background, TheBounty, ?DEF_BACKGROUND_AMBIENT),
     case Type of
-        hemilight when Power > 0.0 ->
+        hemilight when Power > +0.0 ->
             println(F,"",
                     []),
             println(F, "",
@@ -4769,7 +4769,7 @@ export_light(F, Name, ambient, _OpenGL, TheBounty) ->
             println(F, ""),
             Bg;
         hemilight -> Bg;
-        pathlight when Power > 0.0 ->
+        pathlight when Power > +0.0 ->
             uniprintln(F,"<light type sval=\"~w\" name sval=\"~ts\" power fval=\"~.3f\"",
                     [Type,Name,Power]),
             UseQMC = proplists:get_value(use_QMC, TheBounty,
@@ -4950,7 +4950,7 @@ export_camera(F, Name, Attr) ->
     Aperture = proplists:get_value(aperture, Attr),
     uniprintln(F, "<camera name=\"~ts\"> "++
                 "<resx ival=\"~w\"/> <resy ival=\"~w\"/> <focal fval=\"~.10f\"/>"++
-                if Aperture > 0.0 ->
+                if Aperture > +0.0 ->
                         "~n        <dof_distance fval=\"~.10f\"/> <aperture fval=\"~.10f\"/>"
                             "~n        <use_qmc bval=\"~s\"/> <bokeh_type sval=\"~s\"/>"
                             "~n        <bokeh_bias sval=\"~s\"/> <bokeh_rotation fval=\"~.10f\"/> <dof_distance fval=\"~.10f\"/>";
@@ -4980,7 +4980,7 @@ export_camera(F, Name, Attr) ->
 
 
             [Name,Width,Height,FocalDist]++
-                if Aperture > 0.0 ->
+                if Aperture > +0.0 ->
                         [e3d_vec:len(Dir),
                          Aperture,
                          format(proplists:get_value(bokeh_use_QMC, Attr)),
@@ -5693,10 +5693,10 @@ format(A) when is_atom(A) ->
 format(L) when is_list(L) ->
     L.
 
-format_decimals(F) when is_float(F), F >= 0.0 ->
+format_decimals(F) when is_float(F), F >= +0.0 ->
     format_decimals_1(F).
 
-format_decimals_1(0.0) ->
+format_decimals_1(F) when abs(F) == +0.0 ->
     ".0";
 format_decimals_1(F) when is_float(F) ->
     G = 10.0 * F,
@@ -5704,7 +5704,7 @@ format_decimals_1(F) when is_float(F) ->
     D = G - float(I),
     [$.,(I+$0)|format_decimals_2(D)].
 
-format_decimals_2(0.0) ->
+format_decimals_2(F) when abs(F) == +0.0 ->
     [];
 format_decimals_2(F) when is_float(F) ->
     G = 100.0 * F,
@@ -5716,7 +5716,7 @@ format_decimals_2(F) when is_float(F) ->
             [integer_to_list(I)|format_decimals_3(D)]
     end.
 
-format_decimals_3(0.0) ->
+format_decimals_3(F) when abs(F) == +0.0 ->
     [];
 format_decimals_3(F) when is_float(F) ->
     G = 1000.0 * F,
@@ -5730,7 +5730,7 @@ format_decimals_3(F) when is_float(F) ->
             [integer_to_list(I)|format_decimals_4(D)]
     end.
 
-format_decimals_4(0.0) ->
+format_decimals_4(F) when abs(F) == +0.0 ->
     [];
 format_decimals_4(F) when is_float(F) ->
     G = 10000.0 * F,
