@@ -51,6 +51,7 @@ MODULES= \
 	wpc_intersect_vertex \
 	wpc_isometric_view \
 	wpc_magnet_mask \
+	wpc_mesh_bump \
 	wpc_move_planar \
 	wpc_numeric_camera \
 	wpc_plane_cut \
