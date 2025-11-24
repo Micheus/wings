@@ -1,6 +1,6 @@
 # Wings3D
 
-[![documentation](https://img.shields.io/badge/documentation-open-blue)](http://www.wings3d.com) [![forum](https://img.shields.io/badge/forum-open-red)](http://www.wings3d.com/forum/)
+[![documentation](https://img.shields.io/badge/documentation-open-blue)](http://www.wings3d.com) [![forum](https://img.shields.io/badge/forum-open-red)](http://www.wings3d.com/forum/) [![Download Wings 3D](https://img.shields.io/sourceforge/dm/wings.svg)](https://sourceforge.net/projects/wings/files/latest/download)
 
 **Wings3D** is an advanced sub-division modeller inspired by the Nendo and Mirai modellers from Izware.
 
