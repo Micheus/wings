@@ -126,6 +126,29 @@ auv_txset_naming_menu() ->
      {?__(3,"UV Tile Base-1"), {txset_naming,uv_base1}, "Mudbox standard - name_u1_v1"},
      {?__(4,"UDIM"), {txset_naming,uv_udim}, "Mari standard - name_1001"}].
 
+auv_sprite_mode_menu(label) ->
+    ?__(1,"Sprite Editor Mode");
+auv_sprite_mode_menu(help) ->
+    ?__(2,"Toggle the move mode to use snap to cell feature").
+
+auv_sprite_size_menu(Size) ->
+    Menu0 =
+        case Size of
+            undefined -> [];
+            _ -> [{?__(1,"Keep") ++ io_lib:format(" (~wpx)",[Size]), {sprite_size,Size},
+                    ?__(2,"Retains the size of the last tile used:") ++ io_lib:format(" ~wx~w",[Size,Size])},
+                  separator]
+        end,
+    HlpStr = ?__(3, "Sets the tile size to: ~wx~w"),
+    Menu = Menu0 ++ [auv_sprite_size_menu(Pwr,HlpStr) || Pwr <- lists:seq(0,8)],
+    {_,X,Y} = wings_wm:local_mouse_state(),
+    wings_menu:popup_menu(X,Y, {auv,option}, Menu).
+
+auv_sprite_size_menu(Pwr,HlpStr) ->
+    Val = trunc(math:pow(2, Pwr)),
+    {io_lib:format("~wpx",[Val]), {sprite_size,Val}, io_lib:format(HlpStr, [Val,Val])}.
+
+
 command({body,{?MODULE, Op}} , St) ->
     start_uvmap(Op, St);
 command({face,{?MODULE, Op}} , St) ->
@@ -450,7 +473,11 @@ create_uv_state(Charts, MatName, Fs, We, #st{shapes=Shs0}=GeomSt) ->
 		      gb_sets:from_list(gb_trees:keys(Charts))),
     wings_wm:set_prop(allow_rotation, false),
     wings_wm:set_prop(select_backface, true),
-
+    wings_wm:set_prop(sprite_edit_mode, false), %% valid while window is active
+    case wpa:scene_pref_get(?MODULE,sprite_size,false) of
+        false -> ignore;
+        Size -> ?SET({?MODULE,sprite_size},Size)
+    end,
     wings_wm:later(got_focus),
 
     case ?GET({?MODULE,show_background}) of
@@ -729,6 +756,7 @@ command_menu(_, X, Y) ->
     TxSetMode = wings_wm:get_prop(wings_wm:this(), texture_set_mode),
     CkdTextureSet = [{crossmark, TxSetMode}],
     CkdTextureSetId = [{crossmark, ?GET({?MODULE,show_texture_set_id})}],
+    CkdSpriteMode = [{crossmark, wings_wm:get_prop(wings_wm:this(), sprite_edit_mode)}],
     case TxSetMode of
       false ->
           TiledMenu = [{auv_show_tile_menu(label),toggle_tiled_texture,auv_show_tile_menu(help),CkdTiled}],
@@ -741,6 +769,7 @@ command_menu(_, X, Y) ->
            ShowTileId ++
            [separator] ++ TiledMenu ++
            [{Label0,Cmd0,Help0,CkdTextureSet}] ++
+           [{auv_sprite_mode_menu(label),toggle_sprite_mode,auv_sprite_mode_menu(help),CkdSpriteMode}] ++
            ExportMenu ++ option_menu(),
     wings_menu:popup_menu(X,Y, {auv,option}, Menu).
 
@@ -1003,12 +1032,10 @@ handle_event_3({action,{auv,quit}}, _St) ->
     cleanup_before_exit(),
     delete;
 handle_event_3({action,{{auv,_},Cmd}}, St) ->
-    %%    io:format("Cmd ~p ~n", [Cmd]),
     handle_command(Cmd, St);
 handle_event_3({action,{auv,Cmd}}, St) ->
     handle_command(Cmd, St);
 handle_event_3({action,{toggle_texture_set_mode,_}=Cmd}, St) ->
-    %%    io:format("Cmd ~p ~n", [Cmd]),
     handle_command(Cmd, St);
 handle_event_3({action,{select,show_all}}, #st{bb=#uvstate{st=GeomSt,id=Id}}) ->
     wings_wm:send({autouv,Id}, {add_faces,object,GeomSt}),
@@ -1189,7 +1216,10 @@ handle_command_1({remap,Method}, St0) ->
     St = remap(Method, St0),
     get_event(St);
 handle_command_1(move, St) ->
-    wings_move:setup(free_2d, St);
+    case wings_wm:get_prop(wings_wm:this(), sprite_edit_mode) of
+        true -> move_sprite(St);
+        false -> wings_move:setup(free_2d, St)
+    end;
 handle_command_1({move,{'ASK',Ask}}, St) ->
     wings:ask(Ask, St, fun(M,St0) ->
 			       do_drag(wings_move:setup(M, St0))
@@ -1348,6 +1378,21 @@ handle_command_1(toggle_background, _) ->
     Old = ?GET({?MODULE,show_background}),
     ?SET({?MODULE,show_background},not Old),
     wings_wm:dirty();
+handle_command_1(toggle_sprite_mode, #st{bb=Uvs}) ->
+    Old = wings_wm:get_prop(wings_wm:this(), sprite_edit_mode),
+    wings_wm:set_prop(wings_wm:this(), sprite_edit_mode, not Old),
+    case Old of
+        false ->
+            #e3d_image{width=Width} = wings_image:info(Uvs#uvstate.bg_img),
+            ?SET({?MODULE,sprite_image_width},Width),
+            auv_sprite_size_menu(?GET({?MODULE,sprite_size}));
+        true ->
+            wings_wm:dirty()
+    end;
+handle_command_1({sprite_size,Size}, _) ->
+    wpa:scene_pref_set(?MODULE, [{sprite_size,Size}]),
+    ?SET({?MODULE,sprite_size},Size),
+    keep;
 handle_command_1(toggle_tiled_texture, _) ->
     Old = ?GET({?MODULE,tiled_texture}),
     ?SET({?MODULE,tiled_texture},not Old),
@@ -2020,6 +2065,12 @@ handle_drop(#{type:=image,id:=Id}, #st{bb=Uvs0, shapes=Shs0}=AuvSt0) ->
             false ->
                 {set_texture(MatName,Id,AuvSt0), set_texture(MatName,Id,GeomSt0)}
         end,
+    case wings_wm:get_prop(wings_wm:this(), sprite_edit_mode) of
+        true ->
+            #e3d_image{width=Width} = wings_image:info(Id),
+            ?SET({?MODULE,sprite_image_width},Width);
+        false -> ignore
+    end,
     new_state(AuvSt#st{bb=Uvs0#uvstate{bg_img=Id, st=GeomSt}});
 handle_drop(_DropData, _) ->
     ?dbg("Ignore ~P~n",[_DropData,30]),
@@ -2586,6 +2637,31 @@ draw_background(#st{bb=#uvstate{bg_img=Image, tile={U0,V0}, st=#st{shapes=Shs},i
         false ->
             draw_texture(init_texture({0,0},Image))
     end,
+
+    %% Draw inned grid in the UV space.
+    SpriteMode = wings_wm:get_prop(wings_wm:this(), sprite_edit_mode),
+    if (SpriteMode) ->
+        SprtImgWidth = ?GET({?MODULE,sprite_image_width}),
+        SprtSize = ?GET({?MODULE,sprite_size}),
+        case SprtSize of
+            undefined -> ignore;
+            1 -> ignore;
+            _ ->
+                Tiles = SprtImgWidth div SprtSize,
+                SprtTileWidth = 1.0/Tiles,
+                SprtBin = << <<(V*SprtTileWidth):?F32, 1.0:?F32, (V*SprtTileWidth):?F32,0.0:?F32,
+                    1.0:?F32,(V*SprtTileWidth):?F32, 0.0:?F32, (V*SprtTileWidth):?F32>>
+                    || V <- lists:seq(0,Tiles) >>,
+                gl:enable(?GL_DEPTH_TEST),
+                gl:polygonMode(?GL_FRONT_AND_BACK, ?GL_LINE),
+                gl:lineWidth(1.0),
+                gl:color3f(0.7,0.7,1.0),
+                gl:translatef(0.0, 0.0, -0.5),
+                wings_vbo:draw(fun(_) -> gl:drawArrays(?GL_LINES, 0, 4*(Tiles+Tiles+1)) end, SprtBin, [vertex2d])
+        end;
+    true -> ignore
+    end,
+
     gl:disable(?GL_TEXTURE_2D),
     gl:popAttrib().
 
@@ -2829,3 +2905,37 @@ camera_reset() ->
                                      distance=Dist,
                                      pan_x=0.0,pan_y=0.0,
                                      along_axis=none}).
+
+move_sprite(#st{selmode=SelMode}=St) ->
+    wings_drag:fold(fun(Vs0, We) ->
+                        Vs = setup_we(SelMode,Vs0,We),
+                        move_sprite_tvs(Vs, We)
+                    end, [dx,dy], St).
+
+move_sprite_tvs(Vs, We) ->
+    {Cx,Cy,_} = wings_vertex:center(Vs, We),
+    VsPos = wings_util:add_vpos(Vs, We),
+    SprtImgWidth = ?GET({?MODULE,sprite_image_width}),
+    SprtSize = ?GET({?MODULE,sprite_size}),
+    Off = (1.0/SprtImgWidth)*SprtSize,
+    Off2 = Off/2.0,
+    Fun = fun([Dx0,Dy0], A) ->
+        Dx = Off2+(trunc((Cx+Dx0)/Off2)*Off2)-Cx,
+        Dy = Off2+(trunc((Cy+Dy0)/Off2)*Off2)-Cy,
+        foldl(fun({V,{X,Y,_}}, VsAcc) ->
+            Vpos = {X+Dx, Y+Dy, 0.0},
+            [{V,Vpos}|VsAcc]
+              end, A, VsPos)
+          end,
+    {Vs,Fun}.
+
+setup_we(Mode, Items, We) when not is_list(Items) ->
+    setup_we(Mode, gb_sets:to_list(Items), We);
+setup_we(vertex, Items, _) ->
+    Items;
+setup_we(edge, Items, We) ->
+    wings_edge:to_vertices(Items, We);
+setup_we(face, Items, We) ->
+    wings_face:to_vertices(Items, We);
+setup_we(body, _, #we{vp=Vtab}) ->
+    wings_util:array_keys(Vtab).
