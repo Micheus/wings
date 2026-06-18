@@ -68,7 +68,8 @@ menu(X, Y, St) ->
 	    {?__(29,"Tesselate"),{tesselate,wings_tesselation:submenu()}},
 	    separator,
 	    {?__(32,"Hide"),hide_fun(),
-	     {?__(33,"Hide the selected faces"),[],
+	     {?__(33,"Hide the selected faces"),
+	      ?__(44,"Unhide all object faces"),
 	      ?__(41,"Unhide faces adjacent to selection")},[]},
 	    {?__(37,"Hole"),hole_fun(),
 	     {?__(38,"Create hole"),
@@ -132,7 +133,8 @@ mirror_fun() ->
 
 hide_fun() ->
     fun(1, _Ns) -> {face,hide};
-       (3, _Ns) -> {face,unhide};
+       (2, _Ns) -> {face,{unhide,all}};
+       (3, _Ns) -> {face,{unhide,adj}};
        (_, _Ns) -> ignore
     end.
 
@@ -198,8 +200,8 @@ command(vertex_color, St) ->
 		       end);
 command(hide, St) ->
     {save_state,hide_faces(St)};
-command(unhide, St) ->
-    {save_state,unhide_faces(St)};
+command({unhide, Mode}, St) ->
+    {save_state,unhide_faces(Mode,St)};
 command(create_hole, St) ->
     {save_state,create_hole(St)};
 command(remove_hole, St) ->
@@ -1455,8 +1457,11 @@ hide_faces_fun(Fs, We0) ->
 	false -> We
     end.
 
-unhide_faces(St0) ->
-    St = wings_sel:map(fun unhide_faces_1/2, St0),
+unhide_faces(Mode, St0) ->
+    St = wings_sel:map(case Mode of
+                           adj -> fun unhide_faces_1/2;
+                           all -> fun unhide_all_faces_1/2
+                       end, St0),
     wings_sel:clear(St).
 
 unhide_faces_1(Faces, #we{fs=Ftab,holes=Holes,mirror=Mirror}=We) ->
@@ -1465,6 +1470,11 @@ unhide_faces_1(Faces, #we{fs=Ftab,holes=Holes,mirror=Mirror}=We) ->
     Hidden = gb_sets:from_ordset(ordsets:subtract(AllHidden, Holes) -- [Mirror]),
     AdjHidden = gb_sets:intersection(AdjFs, Hidden),
     wings_we:show_faces(AdjHidden, We).
+
+unhide_all_faces_1(_Faces, #we{fs=Ftab,holes=Holes,mirror=Mirror}=We) ->
+    AllHidden = [F || F <- gb_trees:keys(Ftab), F < 0],
+    Hidden = gb_sets:from_ordset(ordsets:subtract(AllHidden, Holes) -- [Mirror]),
+    wings_we:show_faces(Hidden, We).
 
 %%%
 %%% The Hole command.
