@@ -133,10 +133,7 @@ changed_state(scene_lights, Bool, #{light:=Light0, have_scene_light:=HaveSceneLi
     Light = use_light(Bool, HaveSceneLight),
     {Light =/= Light0, {light, Light}};
 changed_state(have_scene_light, Bool, #{have_scene_light:=HaveSceneLight}) ->
-    {Bool =/= HaveSceneLight, {have_scene_light, Bool}};
-changed_state(_Key, _Val, _State) ->
-    %% ?dbg("Ignore: ~p ~p in ~p~n",[_Key, _Val, _State]),
-    {false, ignored}.
+    {Bool =/= HaveSceneLight, {have_scene_light, Bool}}.
 
 change_state(Window, State) ->
     fun(Ev) -> forward_event(Ev, Window, State) end.

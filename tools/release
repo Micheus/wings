@@ -355,7 +355,8 @@ copy_app(App0, Lib, BitSize) ->
 	   ["plugins","autouv","*.{auv,fs,vs}"],
 	   ["priv","*.{so,dll}"],
 	   ["shaders","*"],
-	   ["textures","*"]
+	   ["textures","*"],
+	   ["textures","matcap","*"]
 	  ],
     Files = lists:foldl(fun(Wc0, Acc) ->
 				Wc = filename:join([App|Wc0]),

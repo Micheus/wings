@@ -5,6 +5,12 @@ by [Petrosfera](https://petrosfera.gumroad.com/l/abstractmatcapsvol1?a=784689267
 ![AbstractMatcap_AquaLine.jpg](AbstractMatcap_AquaLine.jpg)
 ![AbstractMatcap_GreyMatter.jpg](AbstractMatcap_GreyMatter.jpg)
 
+by [E.J. Hassenfratz](https://eyedesyn.gumroad.com/l/mgeiu)<br />
+![GreyTritone_MatCap.png](GreyTritone_MatCap.png)
+![ClayTritone_MatCap.png - customized](ClayTritone_MatCap.png)
+
+![BlueToon.png](BlueToon.png)
+
 by [Sleeps](https://forum.nomadsculpt.com/t/sleeps-free-matcap-pack/23210)<br />
 ![Sleeps_Plain_03_Shine.png](Sleeps_Plain_03_Shine.png)
 ![Sleeps_Plain_04_Shine.png](Sleeps_Plain_04_Shine.png)
