@@ -9,60 +9,23 @@ GOTO badarg
 
 :search
 
-IF EXIST "C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsall.bat". (
-   call "C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" %~1 > nul
-   goto continue
-)
+SET VSWHERE="%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+FOR /F "delims=" %%P IN ('%VSWHERE% -latest -property installationPath') DO (
+   SET "VCVARSALL=%%P\VC\Auxiliary\Build\vcvarsall.bat"
+ )
 
-IF EXIST "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat". (
-   call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" %~1 > nul
-   goto continue
-)
-
-IF EXIST "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvarsall.bat". (
-   call "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvarsall.bat" %~1 > nul
-   goto continue
-)
-
-IF EXIST "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat". (
-   call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat" %~1 > nul
-   goto continue
-)
-
-IF EXIST "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvarsall.bat". (
-   call "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" %~1 > nul
-   goto continue
-)
-
-IF EXIST "C:\Program Files (x86)\Microsoft Visual Studio\2019\Professional\VC\Auxiliary\Build\vcvarsall.bat". (
-   call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Professional\VC\Auxiliary\Build\vcvarsall.bat" %~1 > nul
-   goto continue
-)
-
-IF EXIST "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvarsall.bat". (
-   call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvarsall.bat" %~1 > nul
-   goto continue
-)
-
-IF EXIST "C:\Program Files (x86)\Microsoft Visual Studio\2017\BuildTools\VC\Auxiliary\Build\vcvarsall.bat". (
-   call "C:\Program Files (x86)\Microsoft Visual Studio\2017\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" %~1 > nul
-   goto continue
-)
-
-IF EXIST "C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat". (
-   call "C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat" %~1 > nul
-   goto continue
-)
-
-IF EXIST "C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\vcvarsall.bat". (
-   call "C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\vcvarsall.bat" %~1 > nul
-   goto continue
-)
-
-GOTO no_vcvars
+IF NOT DEFINED VCVARSALL GOTO no_vcvars
+IF NOT EXIST "%VCVARSALL%" GOTO no_vcvars
+call "%VCVARSALL%" %~1 > nul
 
 :continue
-FOR /F "delims==" %%F IN ('where cl.exe') DO SET _cl_exec_=%%F
+
+FOR /F "delims==" %%F IN ('where cl.exe') DO (
+   SET _cl_exec_=%%F
+   goto set_cl_path
+)
+
+:set_cl_path
 FOR %%F IN ("%_cl_exec_%") DO SET CL_PATH=%%~dpF
 
 FOR /F "delims==" %%F IN ('where rc.exe') DO SET _rc_exec_=%%F
