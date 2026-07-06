@@ -46,7 +46,9 @@ make_ncube(Arg, St) when is_atom(Arg) ->
 make_ncube(Arg, _) ->
     % set_pref(Arg),	% don't save
     ArgDict = dict:from_list(Arg),
-    Nres = dict:fetch(nres, ArgDict),
+    Xres = dict:fetch(xres, ArgDict),
+    Yres = dict:fetch(yres, ArgDict),
+    Zres = dict:fetch(zres, ArgDict),
     X = dict:fetch(xcube, ArgDict)/2,
     Y = dict:fetch(ycube, ArgDict)/2,
     Z = dict:fetch(zcube, ArgDict)/2,
@@ -59,41 +61,54 @@ make_ncube(Arg, _) ->
     Ground = dict:fetch(ground, ArgDict),
 
     SpherizeFlag = dict:fetch(spherizeflag, ArgDict),
-    Verts = ncube_verts(Nres+1),
-    Faces = ncube_faces(Nres+1, Nres+1),
+    Verts = ncube_verts(Xres+1, Yres+1, Zres+1),
+    Faces = ncube_faces(Xres+1, Yres+1, Zres+1),
     {Vs0, Fs} = clean_indexed_mesh(Verts, Faces),
     Vs1 = transform_mesh(SpherizeFlag, {X,Y,Z}, Vs0),
     Vs = wings_shapes:transform_obj({Rot_X,Rot_Y,Rot_Z},{Mov_X,Mov_Y,Mov_Z},Ground, Vs1),
     {new_shape,cube_str(),Fs,Vs}.
 
 ncube_dialog() ->
-    Nres = get_pref(nres, 1),
+    Xres = get_pref(xres, 1),
+    Yres = get_pref(yres, 1),
+    Zres = get_pref(zres, 1),
     SpherizeFlag = get_pref(spherizeflag, false),
-    [{hframe,
-      [{slider, {text, Nres,
-		 [{key,nres},{range,{1,20}}]}}],[{title, ?__(1,"Number of Cuts")}]},
+    [{vframe, [
         {hframe,[
             {label_column, [
-                {wings_s:dir(x), {text,2.0,[{key,xcube},{range,{+0.0,infinity}}]}},
-                {wings_s:dir(y), {text,2.0,[{key,ycube},{range,{+0.0,infinity}}]}},
-                {wings_s:dir(z), {text,2.0,[{key,zcube},{range,{+0.0,infinity}}]}}
+                {?__(5,"Size"),
+                    {label_column, [
+                        {wings_s:dir(x), {text,2.0,[{key,xcube},{range,{+0.0,infinity}}]}},
+                        {wings_s:dir(y), {text,2.0,[{key,ycube},{range,{+0.0,infinity}}]}},
+                        {wings_s:dir(z), {text,2.0,[{key,zcube},{range,{+0.0,infinity}}]}}
+                    ]}}
+            ]},
+            {label_column, [
+                {?__(1,"Number of Cuts"),
+                    {label_column, [
+                        {wings_s:dir(x), {text,Xres,[{key,xres},{range,{1,infinity}},{width,4}]}},
+                        {wings_s:dir(y), {text,Yres,[{key,yres},{range,{1,infinity}},{width,4}]}},
+                        {wings_s:dir(z), {text,Zres,[{key,zres},{range,{1,infinity}},{width,4}]}}
+                    ]}}
             ]}
-        ],[{margin,false}]},
+        ],[{title,""},{margin,false}]},
         {hradio,[{?__(2,"Yes"), true},
                  {?__(3,"No"), false}],
                 SpherizeFlag, [{key,spherizeflag}, {title, ?__(4,"Spherize")}]},
         wings_shapes:transform_obj_dlg()
-    ].
+    ],[{margin,false}]}].
 
-ncube_verts(Nres) ->
+ncube_verts(Xres, Yres, Zres) ->
     S = 1.0,
-    Nverts = plane_verts(Nres),
-    Tverts = [calc_vs({X, S, Z},{1.0,S,1.0}) || {X,Z} <- Nverts],
-    Bverts = [calc_vs({X, S, Z},{1.0,-S,-1.0}) || {X,Z} <- Nverts],
-    Fverts = [calc_vs({X, Z, S},{1.0,-1.0,S}) || {X,Z} <- Nverts],
-    Kverts = [calc_vs({X, Z, S},{-1.0,-1.0,-S}) || {X,Z} <- Nverts],
-    Rverts = [calc_vs({S, X, Z},{S,-1.0,1.0}) || {X,Z} <- Nverts],
-    Lverts = [calc_vs({S, X, Z},{-S,1.0,1.0}) || {X,Z} <- Nverts],
+    Xverts = plane_verts(Yres, Zres),
+    Yverts = plane_verts(Xres, Zres),
+    Zverts = plane_verts(Xres, Yres),
+    Tverts = [calc_vs({X, S, Z},{1.0,S,1.0}) || {X,Z} <- Yverts],
+    Bverts = [calc_vs({X, S, Z},{1.0,-S,-1.0}) || {X,Z} <- Yverts],
+    Fverts = [calc_vs({X, Z, S},{1.0,-1.0,S}) || {X,Z} <- Zverts],
+    Kverts = [calc_vs({X, Z, S},{-1.0,-1.0,-S}) || {X,Z} <- Zverts],
+    Rverts = [calc_vs({S, X, Z},{S,-1.0,1.0}) || {X,Z} <- Xverts],
+    Lverts = [calc_vs({S, X, Z},{-S,1.0,1.0}) || {X,Z} <- Xverts],
     VertsWithDups = Tverts ++ Bverts ++ Fverts ++ Kverts ++ Rverts ++ Lverts,
     VertsWithDups.
 
@@ -114,14 +129,20 @@ transform_mesh(true, Box, Vs) ->
 transform({Xs,Ys,Zs}, {Xp,Yp,Zp}) ->
     {Xp*Xs, Yp*Ys, Zp*Zs}.
 
-ncube_faces(Nres, Nres) ->
-    Nsq = Nres*Nres,
-    Tfaces = plane_faces(Nres, Nres),
-    Bfaces = side_faces(Nsq*1, Tfaces),
-    Ffaces = side_faces(Nsq*2, Tfaces),
-    Kfaces = side_faces(Nsq*3, Tfaces),
-    Rfaces = side_faces(Nsq*4, Tfaces),
-    Lfaces = side_faces(Nsq*5, Tfaces),
+ncube_faces(Xres, Yres, Zres) ->
+    Tcount = Xres * Zres,
+    Fcount = Xres * Yres,
+    Rcount = Yres * Zres,
+
+    Tfaces = plane_faces(0, Xres, Zres),
+    Bfaces = side_faces(Tcount, Tfaces),
+
+    Ffaces = plane_faces((Tcount*2),Xres, Yres),
+    Kfaces = side_faces(Fcount, Ffaces),
+
+    Rfaces = plane_faces((Tcount+Fcount)*2, Yres, Zres),
+    Lfaces = side_faces(Rcount, Rfaces),
+
     Faces = Tfaces ++ Bfaces ++ Ffaces ++ Kfaces ++ Rfaces ++ Lfaces,
     Faces.
 
@@ -129,13 +150,13 @@ side_faces(Offset, Faces) ->
     AddOffset = fun([A,B,C,D]) -> [A+Offset,B+Offset,C+Offset,D+Offset] end,
     lists:map(AddOffset, Faces).
 
-plane_verts(Nres) ->
-    [{dtc_round((I/(Nres-1)*2-1)), dtc_round((J/(Nres-1)*2-1))}
-      || I <- lists:seq(0, Nres-1), J <- lists:seq(0, Nres-1)].
+plane_verts(Vres, Ures) ->
+    [{dtc_round((V/(Vres-1)*2-1)), dtc_round((U/(Ures-1)*2-1))}
+      || V <- lists:seq(0, Vres-1), U <- lists:seq(0, Ures-1)].
 
-plane_faces(Ures, Vres) ->
-    [[I*Vres+J, I*Vres+J+1, (I+1)*Vres+J+1, (I+1)*Vres+J]
-      || I <- lists:seq(0, Vres-2), J <- lists:seq(0, Ures-2)].
+plane_faces(Offset, Vres, Ures) ->
+    [ [(V*Ures)+U+Offset, (V*Ures)+U+Offset+1, ((V+1)*Ures)+U+Offset+1, ((V+1)*Ures)+U+Offset]
+        || U <- lists:seq(0, Ures-2), V <- lists:seq(0, Vres-2) ].
 
 dtc_round(Float) ->
     dtc_round(Float, 6).
