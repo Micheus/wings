@@ -134,7 +134,7 @@ mirror_fun() ->
 hide_fun() ->
     fun(1, _Ns) -> {face,hide};
        (2, _Ns) -> {face,{unhide,all}};
-       (3, _Ns) -> {face,{unhide,adj}};
+       (3, _Ns) -> {face,unhide};
        (_, _Ns) -> ignore
     end.
 
@@ -200,6 +200,8 @@ command(vertex_color, St) ->
 		       end);
 command(hide, St) ->
     {save_state,hide_faces(St)};
+command(unhide, St) ->
+    command({unhide, adj}, St);
 command({unhide, Mode}, St) ->
     {save_state,unhide_faces(Mode,St)};
 command(create_hole, St) ->
@@ -1471,10 +1473,8 @@ unhide_faces_1(Faces, #we{fs=Ftab,holes=Holes,mirror=Mirror}=We) ->
     AdjHidden = gb_sets:intersection(AdjFs, Hidden),
     wings_we:show_faces(AdjHidden, We).
 
-unhide_all_faces_1(_Faces, #we{fs=Ftab,holes=Holes,mirror=Mirror}=We) ->
-    AllHidden = [F || F <- gb_trees:keys(Ftab), F < 0],
-    Hidden = gb_sets:from_ordset(ordsets:subtract(AllHidden, Holes) -- [Mirror]),
-    wings_we:show_faces(Hidden, We).
+unhide_all_faces_1(_Faces, We) ->
+    wings_we:show_faces(We).
 
 %%%
 %%% The Hole command.
