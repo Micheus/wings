@@ -64,7 +64,7 @@ import_filename_1(Ps0, Cont) ->
     Ps = Ps0 ++ [{title,String},{directory,Dir}],
     Fun = fun(Name0) ->
 		  Name=test_unc_path(Name0),
-		  case catch Cont(Name) of
+		  try Cont(Name) of
 		      {command_error,Error} ->
 			  wings_u:message(Error);
 		      #st{}=St ->
@@ -74,6 +74,9 @@ import_filename_1(Ps0, Cont) ->
 			  wings_wm:send(This, {action,Tuple});
 		      ignore -> keep;
 		      keep -> keep
+		  catch
+		      _:Reason ->
+			  wings_wm:send(This, {action,{'EXIT',Reason}})
 		  end
 	  end,
     wings_plugin:call_ui({file,open_dialog,Ps,Fun}).
@@ -94,7 +97,7 @@ export_filename_1(Prop0, Cont) ->
     Prop = Prop0 ++ [{directory,Dir}],
     Fun = fun(Name0) ->
 		  Name=test_unc_path(Name0),
-		  case catch Cont(Name) of
+		  try Cont(Name) of
 		      {command_error,Error} ->
 			  wings_u:message(Error);
 		      #st{}=St ->
@@ -105,6 +108,9 @@ export_filename_1(Prop0, Cont) ->
 		      ignore -> keep;
 		      keep -> keep;
 		      ok -> keep
+		  catch
+		      _:Reason ->
+			  wings_wm:send(This, {action,{'EXIT',Reason}})
 		  end
 	  end,
     String = case os:type() of
@@ -293,7 +299,8 @@ delete_nth([], _) -> [].
 
 confirmed_new(#st{file=File}=St) ->
     %% Remove autosaved file; user has explicitly said so.
-    catch file:delete(autosave_filename(File)),
+    try file:delete(autosave_filename(File))
+    catch _:_ -> ok end,
     new(St#st{saved=true}).
 
 new(#st{saved=true}=St0) ->
@@ -445,7 +452,9 @@ save_now(Next, #st{file=Name0}=St) ->
 
 del_unsaved_file() ->
     File = autosave_filename(unsaved_filename()),
-    catch file:delete(File),
+    try file:delete(File)
+    catch _:_ -> ok
+    end,
     wings_pref:set_value(file_recovered, false).
 
 test_unc_path([H|_]=FileName) when H=:=47 ->

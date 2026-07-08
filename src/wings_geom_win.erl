@@ -398,7 +398,8 @@ change_state(Window, St) ->
 forward_event(redraw, _Window, _St) -> keep;
 forward_event({current_state, _, _}, _Window, _St0) -> keep;
 forward_event({current_state, St}, Window, St0) ->
-    case (SelSt = get_shape_state(St)) =:= get_shape_state(St0) of
+    SelSt = get_shape_state(St),
+    case SelSt =:= get_shape_state(St0) of
 	true  -> ignore;
 	false -> wx_object:cast(Window, {new_state,SelSt})
     end,
@@ -463,7 +464,7 @@ init([Frame, {W,_}, _Ps, Name, SS]) ->
     wxSplitterWindow:setFont(Splitter, ?GET(system_font_wx)),
     wxSplitterWindow:setMinimumPaneSize(Splitter, 1),
     wxSplitterWindow:setSashGravity(Splitter, 0.25),
-    
+
     TreeStyle = ?wxTR_EDIT_LABELS bor ?wxTR_NO_BUTTONS bor ?wxTR_NO_LINES,
     TC  = wxTreeCtrl:new(Splitter, [{style, TreeStyle}]),
     wxTreeCtrl:setBackgroundColour(TC, BG),
@@ -680,7 +681,7 @@ terminate(_Reason, #state{name=Name}) ->
 
 %%%%%%%%%%%%%%%%%%%%%%
 
-show_folders({?NO_FLD, List}) ->  
+show_folders({?NO_FLD, List}) ->
     case List of
 	[] -> false;
 	[_] -> false;

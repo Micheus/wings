@@ -690,9 +690,10 @@ export_camera(F, Attr, CorrectedFOV, Width, Height)->
     io:put_chars(F, "\t<Object Identifier=\"./Cameras/Wings View\" Label=\"Pinhole Camera\" Name=\"Wings View\" Type=\"Camera\">\n"),
 
     LensLength =
-        case catch 0.5 / math:tan(Fov*math:pi()/360.0) of
-            {'EXIT',_} -> 0.0;
+        try 0.5 / math:tan(Fov*math:pi()/360.0) of
             L when is_float(L) -> L
+        catch
+            _:_ -> 0.0
         end,
 
     %% KT 2007 format

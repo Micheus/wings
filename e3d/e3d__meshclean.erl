@@ -33,21 +33,23 @@ orient_normals(#e3d_mesh{fs=Fs0}=Mesh) ->
     E2F = ets:new(e2f, [bag, named_table]),
     ets:insert(E2F, sofs:to_external(E2F0)),
     
-    case catch orient_0(Ws,[], 100) of
-	{'EXIT', Reason} -> 
-	    ets:delete(e2f),
-	    %%io:format("Reorient-normals failed with: ~p~n", [Reason]),
-	    exit(Reason);
-	Res0 -> 
-	    ets:delete(e2f),    
-	    Ftab0 = sofs:from_term(Faces, [{face,data}]),
-	    Res = sofs:from_term(gb_trees:to_list(Res0), [{face,ok}]),
-	    Ftab2 = sofs:relative_product1(Ftab0, Res),
-	    Ftab = foldl(fun({F,true}, A) -> [F|A];
-			    ({#e3d_face{vs=Vs}=F,false}, A) ->
-				 [F#e3d_face{vs=reverse(Vs)}|A]
-			 end, [], sofs:to_external(Ftab2)),
-	    Mesh#e3d_mesh{fs=Ftab}
+    try
+		orient_0(Ws,[], 100)
+	catch
+		{'EXIT', Reason} ->
+			ets:delete(e2f),
+			%%io:format("Reorient-normals failed with: ~p~n", [Reason]),
+			exit(Reason);
+		Res0 ->
+			ets:delete(e2f),
+			Ftab0 = sofs:from_term(Faces, [{face,data}]),
+			Res = sofs:from_term(gb_trees:to_list(Res0), [{face,ok}]),
+			Ftab2 = sofs:relative_product1(Ftab0, Res),
+			Ftab = foldl(fun({F,true}, A) -> [F|A];
+					({#e3d_face{vs=Vs}=F,false}, A) ->
+					 [F#e3d_face{vs=reverse(Vs)}|A]
+				 end, [], sofs:to_external(Ftab2)),
+			Mesh#e3d_mesh{fs=Ftab}
     end.
 
 qadd(Face, Es, Bool, Q) ->
@@ -60,16 +62,18 @@ qget(Q) ->
 orient_0(_Ws0,BF,Max) when length(BF) > Max  -> 
     exit({to_many_retries, ?MODULE});
 orient_0(Ws0,BF,Max) ->
-    case catch orient_1(Ws0,gb_trees:empty()) of
-	{bad, Bad} ->
-%% 	    io:format("Found bad face ~p when reorienting deleting it and retrying ~n",
-%% 		      [Bad]),
-	    Es0 = gb_trees:get(Bad, Ws0),
-	    Ws = gb_trees:delete(Bad, Ws0),
-	    [ets:delete_object(e2f, {E, {Bad,S}}) || {E,S} <- Es0], 
-	    orient_0(Ws,[Bad|BF],Max);
-	Else ->
-	    Else
+    try
+		orient_1(Ws0,gb_trees:empty())
+    catch
+		{bad, Bad} ->
+%% 	    	io:format("Found bad face ~p when reorienting deleting it and retrying ~n",
+%% 		    	  [Bad]),
+			Es0 = gb_trees:get(Bad, Ws0),
+			Ws = gb_trees:delete(Bad, Ws0),
+			[ets:delete_object(e2f, {E, {Bad,S}}) || {E,S} <- Es0],
+			orient_0(Ws,[Bad|BF],Max);
+		Else ->
+			Else
     end.
 
 orient_1(Ws0, Res0) ->

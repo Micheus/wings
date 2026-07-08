@@ -115,7 +115,8 @@ draw_options(#st{bb=Uvs}=AuvSt0) ->
                                                 _ ->  atom_to_list(MatName0)
                                             end
                                     end,
-                          catch wings_material:update_image(MatName0, diffuse, NewImg#e3d_image{name=TexName}, GeomSt0)
+                          try wings_material:update_image(MatName0, diffuse, NewImg#e3d_image{name=TexName}, GeomSt0)
+                          catch _:_ -> ok end
                   end,
                   {preview,GeomSt0,GeomSt0};
              (cancel) ->
@@ -123,7 +124,8 @@ draw_options(#st{bb=Uvs}=AuvSt0) ->
                       none ->
                           ok = wings_image:update(TexImg, BkpImg);
                       _ ->
-                          catch wings_material:update_image(MatName0, diffuse, BkpImg, GeomSt0)
+                          try wings_material:update_image(MatName0, diffuse, BkpImg, GeomSt0)
+                          catch _:_ -> ok end
                   end,
                   wings_wm:later({new_state,AuvSt0}),
                   prw_img_id(delete),

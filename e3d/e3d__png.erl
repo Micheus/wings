@@ -875,26 +875,28 @@ test2([]) -> ok;
 test2([File|Rest]) ->
     case lists:reverse(File) of 
 	"gnp." ++ F ->
-	    case catch load(File,[]) of
-		Img = #e3d_image{} when hd(File) == $x ->
-		    io:format("~n Didn't Fail with ~p ~p ~n~n",[File,Img]);
-		Else when hd(File) == $x ->
-		    io:format("~n Good Fail with ~p ~p ~n~n",[File,Else]),
-		    test2(Rest);
-		Img = #e3d_image{width=W,height=H,bytes_pp=Bpp,image=Image} 
-		when W*H*Bpp==size(Image) ->
-		    io:format("~n Loaded ~p ~n~n",[File]),
-		    ok = e3d_image:save(Img, lists:reverse(F)++".tga"),
-		    test2(Rest);
-		#e3d_image{width=W,height=H,bytes_pp=Bpp,image=Image} ->
-		    io:format("~n~p Failed: Size differ W*H*Bpp=~p*~p*~p=~p Isz=~p~n",
-			      [File,W,H,Bpp, W*H*Bpp,size(Image)]);
-	    
-		{'EXIT',not_implemented} ->
-		    io:format("~nNot implemented skipped ~p ~n~n",[File]),
-		    test2(Rest);
-		Else ->
-		    io:format("~n ~p Failed with ~p~n~n",[File,Else])
+	    try
+            load(File,[])
+        catch
+            Img = #e3d_image{} when hd(File) == $x ->
+                io:format("~n Didn't Fail with ~p ~p ~n~n",[File,Img]);
+            Else when hd(File) == $x ->
+                io:format("~n Good Fail with ~p ~p ~n~n",[File,Else]),
+                test2(Rest);
+            Img = #e3d_image{width=W,height=H,bytes_pp=Bpp,image=Image}
+            when W*H*Bpp==size(Image) ->
+                io:format("~n Loaded ~p ~n~n",[File]),
+                ok = e3d_image:save(Img, lists:reverse(F)++".tga"),
+                test2(Rest);
+            #e3d_image{width=W,height=H,bytes_pp=Bpp,image=Image} ->
+                io:format("~n~p Failed: Size differ W*H*Bpp=~p*~p*~p=~p Isz=~p~n",
+                      [File,W,H,Bpp, W*H*Bpp,size(Image)]);
+
+            {'EXIT',not_implemented} ->
+                io:format("~nNot implemented skipped ~p ~n~n",[File]),
+                test2(Rest);
+            Else ->
+                io:format("~n ~p Failed with ~p~n~n",[File,Else])
 	    end;
 	_ ->
 	    test2(Rest)

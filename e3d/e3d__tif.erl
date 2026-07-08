@@ -24,11 +24,13 @@ format_error({unsupported_compression,Comp}) ->
     io_lib:format("Unsupported compression type (~p)", [Comp]).
 
 load(FileName, _Opts) ->
-    case catch load1(FileName,_Opts) of
-	{'EXIT', Reason} ->
-	    {error, {?MODULE,Reason}};
-	Else -> 
-	    Else
+    try
+		load1(FileName,_Opts)
+	catch
+		{'EXIT', Reason} ->
+			{error, {?MODULE,Reason}};
+		Else ->
+			Else
     end.
     
 load1(FileName, _Opts) ->
@@ -63,7 +65,13 @@ do_save(Image, Name, Opts) ->
     end.
 
 save(Father, Image, Name, Opts) ->
-    Father ! {self(),save,(catch save_1(Image, Name, Opts))}.
+	Result = try
+				 save_1(Image, Name, Opts)
+			 catch
+				 throw:Term -> Term;
+				 _:Reason:Stacktrace -> {'EXIT', {Reason, Stacktrace}}
+			 end,
+	Father ! {self(), save, Result}.
 
 save_1(Image0, Name, Opts) ->
     if 
@@ -575,44 +583,48 @@ unpack_bits(BC, W, HC, H, <<Code:8/signed, Rest/binary>>, Acc) when BC < W ->
 % e3d__tif:lzw_init_compress(Raw, size(Raw), 9, {0,[]},[]).
 % 
 lzw_decomp(S, Read, PrevCode, Count, BitLen, Acc) ->
-    case (catch Read(BitLen,S)) of
-	{?LZW_EOI, _Where} ->	    	 
-%	    io:format("~nEOI-1 ~p ~n", [{S, PrevCode, Count, BitLen, _Where}]),
-	    Acc;
-	{?LZW_CLEAR, NS} -> 
-	    lzw_init(0),
-%	    io:format("~nClear table ~p~n", [{S, PrevCode, Count, BitLen}]),
-	    case catch Read(9, NS) of
-		{?LZW_EOI, _} ->
-%%		    io:format("~nEOI-2 ~p ~n", [{S, PrevCode, Count, BitLen}]),
-		    Acc;
-		{NewCode, NS2} when is_integer(NewCode) -> 
-		    Str = ?get_lzw(NewCode),
-		    lzw_decomp(NS2, Read, NewCode, 258, 9, [Str|Acc]);
-	    	Else ->
-		    io:format("~n~p: Error ~p Args: ~p ~n", 
-			      [?MODULE, Else, {NS, PrevCode, Count, BitLen}]),
-		    exit({badly_compressed_data})
-	    end;
-	{NewCode, NS} when is_integer(NewCode) ->
-	    case ?get_lzw(NewCode) of
-		undefined when Count == NewCode ->
-		    OldStr = [H|_] = ?get_lzw(PrevCode),
-		    NewStr = OldStr ++ [H],
-		    ?add_lzw(Count, NewStr),
-		    lzw_decomp(NS, Read, NewCode, Count +1, lzw_bl(Count, BitLen), [NewStr|Acc]);
-		Str = [H|_]->
-		    ?add_lzw(Count, ?get_lzw(PrevCode) ++ [H]),
-		    lzw_decomp(NS, Read, NewCode, Count +1, lzw_bl(Count, BitLen), [Str|Acc]);
+    try
+		Read(BitLen,S)
+	catch
+		{?LZW_EOI, _Where} ->
+%	    	io:format("~nEOI-1 ~p ~n", [{S, PrevCode, Count, BitLen, _Where}]),
+			Acc;
+		{?LZW_CLEAR, NS} ->
+			lzw_init(0),
+%	    	io:format("~nClear table ~p~n", [{S, PrevCode, Count, BitLen}]),
+			try
+				Read(9, NS)
+			catch
+				{?LZW_EOI, _} ->
+%%	    	    	io:format("~nEOI-2 ~p ~n", [{S, PrevCode, Count, BitLen}]),
+					Acc;
+				{NewCode, NS2} when is_integer(NewCode) ->
+					Str = ?get_lzw(NewCode),
+					lzw_decomp(NS2, Read, NewCode, 258, 9, [Str|Acc]);
+					Else ->
+					io:format("~n~p: Error ~p Args: ~p ~n",
+						  [?MODULE, Else, {NS, PrevCode, Count, BitLen}]),
+					exit({badly_compressed_data})
+			end;
+		{NewCode, NS} when is_integer(NewCode) ->
+			case ?get_lzw(NewCode) of
+			undefined when Count == NewCode ->
+				OldStr = [H|_] = ?get_lzw(PrevCode),
+				NewStr = OldStr ++ [H],
+				?add_lzw(Count, NewStr),
+				lzw_decomp(NS, Read, NewCode, Count +1, lzw_bl(Count, BitLen), [NewStr|Acc]);
+			Str = [H|_]->
+				?add_lzw(Count, ?get_lzw(PrevCode) ++ [H]),
+				lzw_decomp(NS, Read, NewCode, Count +1, lzw_bl(Count, BitLen), [Str|Acc]);
+			Else ->
+				io:format("~n~p: Error Case Clause ~p ~p Args ~p ~n",
+					  [?MODULE, Else, NewCode, {S, PrevCode, Count, BitLen}]),
+				exit({badly_compressed_data})
+			end;
 		Else ->
-		    io:format("~n~p: Error Case Clause ~p ~p Args ~p ~n", 
-			      [?MODULE, Else, NewCode, {S, PrevCode, Count, BitLen}]),
-		    exit({badly_compressed_data})
-	    end;
-	Else ->
-	    io:format("~n~p: Error ~p Args: ~p ~n", 
-		      [?MODULE, Else, {S, PrevCode, Count, BitLen}]),
-	    exit({badly_compressed_data})
+			io:format("~n~p: Error ~p Args: ~p ~n",
+				  [?MODULE, Else, {S, PrevCode, Count, BitLen}]),
+			exit({badly_compressed_data})
     end.
 
 lzw_bl(?LZW_SWAP_9, Len) ->  Len +1;
@@ -659,12 +671,14 @@ lzw_compress(<<>>, CC, _W, Omega, BitLen, _TabCount, Build, Acc) ->
     NewBL = BitLen,
     {{TotBitLen, Codes}, N2acc} = lzw_write({NewBL,?LZW_EOI}, NBuild, Nacc),
     PaddL = 8 - (TotBitLen rem 8),
-    case catch lzw_buildbin(lists:reverse([{PaddL, 0}|Codes])) of
+    try
+		lzw_buildbin(lists:reverse([{PaddL, 0}|Codes]))
+	catch
         Bin when is_binary(Bin) -> 
             list_to_binary(lists:reverse([Bin|N2acc]));
-	_Else ->
-	    io:format("~p:~p Error ~p ~p ~n", [?MODULE, ?LINE, {PaddL, Codes}, CC]),
-	    error({?MODULE, decoder, {internal_error, ?LINE}})
+		_Else ->
+			io:format("~p:~p Error ~p ~p ~n", [?MODULE, ?LINE, {PaddL, Codes}, CC]),
+			error({?MODULE, decoder, {internal_error, ?LINE}})
     end;
 lzw_compress(Bin, CC, W, Omega, BitLen, TabCount, Build, Acc) when CC == W ->
     Code =?get_lzw(Omega),
@@ -697,26 +711,30 @@ lzw_write({CLen, Code}, {Totlen, List}, Acc) ->
     NewLen = CLen + Totlen,
     if 
 	NewLen rem 8 == 0 ->
-	    case catch lzw_buildbin(lists:reverse([{CLen,Code}|List])) of
-		Bin when is_binary(Bin) ->
-		    {{0, []}, [Bin|Acc]};
-		{Bin, NewList} when is_binary(Bin) ->
-		    Sum = lists:foldl(fun({X,_}, Sum) -> X + Sum end, 0, NewList),
-		    {{Sum, lists:reverse(NewList)}, [Bin|Acc]};
-		Else ->
-		    io:format("~p:~p Error ~p ~p ~n", [?MODULE, ?LINE, Else, 
-						       [{CLen, Code}, {Totlen, List}]]),
-		    error({?MODULE, decoder, {internal_error, ?LINE}})
+	    try
+			lzw_buildbin(lists:reverse([{CLen,Code}|List]))
+		catch
+			Bin when is_binary(Bin) ->
+				{{0, []}, [Bin|Acc]};
+			{Bin, NewList} when is_binary(Bin) ->
+				Sum = lists:foldl(fun({X,_}, Sum) -> X + Sum end, 0, NewList),
+				{{Sum, lists:reverse(NewList)}, [Bin|Acc]};
+			Else ->
+				io:format("~p:~p Error ~p ~p ~n", [?MODULE, ?LINE, Else,
+								   [{CLen, Code}, {Totlen, List}]]),
+				error({?MODULE, decoder, {internal_error, ?LINE}})
 	    end;
 	NewLen > 100 -> 
-	    case catch lzw_buildbin(lists:reverse([{CLen,Code}|List])) of
-		{Bin, NewList} when is_binary(Bin) ->		    
-		    Sum = lists:foldl(fun({X,_}, Sum) -> X + Sum end, 0, NewList),
-		    {{Sum, lists:reverse(NewList)}, [Bin|Acc]};
-		Else ->
-		    io:format("~p:~p Error ~p ~p ~n", [?MODULE, ?LINE, Else, 
-						       [{CLen, Code}, {Totlen, List}]]),
-		    error({?MODULE, decoder, {internal_error, ?LINE}})
+	    try
+			lzw_buildbin(lists:reverse([{CLen,Code}|List]))
+		catch
+			{Bin, NewList} when is_binary(Bin) ->
+				Sum = lists:foldl(fun({X,_}, Sum) -> X + Sum end, 0, NewList),
+				{{Sum, lists:reverse(NewList)}, [Bin|Acc]};
+			Else ->
+				io:format("~p:~p Error ~p ~p ~n", [?MODULE, ?LINE, Else,
+								   [{CLen, Code}, {Totlen, List}]]),
+				error({?MODULE, decoder, {internal_error, ?LINE}})
 	    end;
 	true ->
 	    {{Totlen + CLen,[{CLen,Code}|List]}, Acc}

@@ -57,7 +57,7 @@
 
 map_chart(Type, We, Options) ->
     Faces = wings_we:visible(We),
-    case catch auv_placement:group_edge_loops(Faces, We) of
+    try auv_placement:group_edge_loops(Faces, We) of
 	[] ->
 	    {error,?__(1,"A closed surface cannot be mapped. "
 	     "(Either divide it into into two or more charts, "
@@ -69,6 +69,10 @@ map_chart(Type, We, Options) ->
 	[Best|_] ->
 	    map_chart_1(Type, Faces, Best, Options, We);
 	Err ->
+	    ?dbg(?__(4,"Error:")++" ~p~n", [Err]),
+	    {error, ?__(5,"Error, try to cleanup objects before uv-mapping")}
+    catch
+	_:Err ->
 	    ?dbg(?__(4,"Error:")++" ~p~n", [Err]),
 	    {error, ?__(5,"Error, try to cleanup objects before uv-mapping")}
     end.
@@ -123,12 +127,16 @@ volproject(Type,Chart,_Pinned,{_,BEdges},We) ->
     [{V,fix_positions(V,Pos,CalcUV(Pos),Tagged)} || {V,Pos} <- Vs1].
 
 sphere({X,Y,Z}) ->
-    S = catchy(catch math:atan2(X,Z)/math:pi()),
+    S = try math:atan2(X,Z)/math:pi()
+        catch _:_ -> math:pi()/4
+        end,
     T = math:acos(clamp(-Y))/math:pi()-0.5,
     {S,T,0.0}.
 
 cyl({X,Y,Z}) ->
-    S = catchy(catch math:atan2(X,Z)/math:pi()),
+    S = try math:atan2(X,Z)/math:pi()
+        catch _:_ -> math:pi()/4
+        end,
     T = Y,
     {S,T,0.0}.
 
@@ -212,9 +220,6 @@ loop_to_circle([#be{vs=V, dist=D}|BEs], Curr, Tot, Vs, UVs) ->
     loop_to_circle(BEs, Curr+D, Tot, [V|Vs], [{math:cos(Frac),math:sin(Frac)}|UVs]);
 loop_to_circle([], _, _, Vs, UVs) ->
     {Vs, UVs}.
-
-catchy({'EXIT', _}) -> math:pi()/4;
-catchy(X) -> X.
 
 clamp(X) when X > 1.0 -> 1.0;
 clamp(X) when X < -1.0 -> -1.0;

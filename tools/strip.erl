@@ -16,12 +16,13 @@
 -export([strip/0]).
 
 strip() ->
-    case catch strip_dir(".") of
-        {'EXIT',Reason} ->
-            io:format("~P\n", [Reason,40]),
-            halt(1);
+    try strip_dir(".") of
         _ ->
             halt(0)
+    catch
+        _:Reason ->
+            io:format("~P\n", [Reason,40]),
+            halt(1)
     end.
 
 strip_dir(Dir) ->

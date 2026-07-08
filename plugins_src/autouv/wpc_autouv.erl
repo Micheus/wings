@@ -19,7 +19,7 @@
 -include_lib("wings/src/wings.hrl").
 -include_lib("wings/e3d/e3d_image.hrl").
 -include("auv.hrl").
- 
+
 -export([init/0,menu/2,command/2,redraw/1]).
 -export([handle_event/2,bg_image/0]). %% Debug
 -import(lists, [sort/1,keysort/2,map/2,foldl/3,reverse/1,keysearch/3]).
@@ -136,7 +136,7 @@ command({?MODULE, Op}, St) ->
     start_uvmap(Op, St);
 command({window,uv_editor_window}, St) ->
     start_uvmap(edit, St);
-command(_Cmd, _) -> 
+command(_Cmd, _) ->
     next.
 
 start_uvmap(edit, #st{sel=[]}) -> wings_u:error_msg(?__(1,"Nothing selected"));
@@ -161,9 +161,9 @@ start_uvmap_1([{Id,_}|T], Action, St) ->
 	{seg_ui,Fs,_} when SegExists ->
 	    wings_wm:send(SegWin, {add_faces,Fs,St}),
 	    wings_wm:raise(SegWin);
-	Op when element(1,Op) == edit ->	    
+	Op when element(1,Op) == edit ->
 	    create_window(Op, EditWin, Id, St);
-	Op ->	    
+	Op ->
 	    create_window(Op, SegWin, Id, St)
     end,
     start_uvmap_1(T, Action, St);
@@ -180,21 +180,21 @@ segment_or_edit(segment,Id,#st{selmode=face,sel=Sel,shapes=Shs}) ->
     end;
 segment_or_edit(segment,Id,#st{shapes=Shs}) ->
     We = gb_trees:get(Id, Shs),
-    case wings_we:uv_mapped_faces(We) of    
+    case wings_we:uv_mapped_faces(We) of
 	[] -> {seg_ui,object,delete_old};
 	_ ->  {edit,object}
     end;
-segment_or_edit(force_seg,Id,#st{selmode=face,sel=Sel}) -> 
+segment_or_edit(force_seg,Id,#st{selmode=face,sel=Sel}) ->
     {value,{_,Fs}} = lists:keysearch(Id, 1, Sel),
     {seg_ui,Fs,delete_old};
 segment_or_edit(force_seg,_Id,_) ->
     {seg_ui,object,delete_old};
-segment_or_edit(segment_old,Id,#st{selmode=face,sel=Sel}) -> 
+segment_or_edit(segment_old,Id,#st{selmode=face,sel=Sel}) ->
     {value,{_,Fs}} = lists:keysearch(Id, 1, Sel),
     {seg_ui,Fs,keep_old};
 segment_or_edit(segment_old,_Id,_) ->
     {seg_ui,object,keep_old}.
-	    
+
 create_window(Action, Name, Id, #st{shapes=Shs}=St) ->
     #we{name=ObjName} = We = gb_trees:get(Id, Shs),
     Op = {replace,fun(Ev) -> auv_event(Ev, St) end},
@@ -273,9 +273,9 @@ init_show_maps(UVMode, Charts0, Fs, #we{name=WeName,id=Id}, GeomSt0) ->
     Charts1 = auv_placement:place_areas(UVMode,Charts0),
     Charts  = gb_trees:from_orddict(keysort(1, Charts1)),
     MatName0 = list_to_atom(WeName++"_auv"),
-    {GeomSt1,MatName} = 
+    {GeomSt1,MatName} =
 	case gb_trees:is_defined(MatName0, GeomSt0#st.mat) of
-	    true -> 
+	    true ->
 		{GeomSt0,MatName0};
 	    false ->
 		Tx = bg_img_id(),
@@ -483,7 +483,7 @@ update_selected_uvcoords(#st{bb=Uvs}=St) ->
     Charts = wpa:sel_fold(fun(_, We, Acc) -> [We|Acc] end, [], St),
     #uvstate{st=#st{shapes=Shs0}=GeomSt0,id=Id} = Uvs,
     We0 = gb_trees:get(Id, Shs0),
-    We = update_uvs(Charts, We0),    
+    We = update_uvs(Charts, We0),
     Shs = gb_trees:update(Id, We, Shs0),
     GeomSt = GeomSt0#st{shapes=Shs},
     update_all_seg_ui(all, Id, GeomSt),
@@ -578,7 +578,8 @@ add_material_0(Tx, MatName0, #st{mat=Matb0}=St0) ->
     end.
 
 update_texture(Im = #e3d_image{},MatName,St) ->
-    catch wings_material:update_image(MatName, diffuse, Im, St),
+    try wings_material:update_image(MatName, diffuse, Im, St)
+    catch _:_ -> ok end,
     {St,MatName}.
 
 bg_img_id() ->
@@ -668,7 +669,7 @@ command_menu(face, X, Y) ->
 command_menu(edge, X, Y) ->
     Scale = scale_directions(true),
     Move = move_directions(true),
-    Align = 	    
+    Align =
 	   [{?__(53,"Free"),rotate_free(true),
 	     {?__(54,"Rotate selection freely"),[],?__(59,"Pick rotation center")}, [magnet]},
 	    {?__(55,"Chart to X"), align_x, ?__(56,"Rotate chart to align selected edge to X-axis")},
@@ -719,10 +720,13 @@ command_menu(vertex, X, Y) ->
 	   ] ++ option_menu(),
     wings_menu:popup_menu(X,Y, {auv,vertex}, Menu);
 command_menu(_, X, Y) ->
-    case catch wpc_hlines:init() of
-        true -> ExportMenu = [separator, {auv_export_menu(label), export_uv, auv_export_menu(help)}];
-        _ -> ExportMenu = []
-    end,
+    ExportMenu =
+        try wpc_hlines:init() of
+            true -> [separator, {auv_export_menu(label), export_uv, auv_export_menu(help)}];
+            _ -> []
+        catch
+            _:_ -> []
+        end,
     CkdBackground = [{crossmark, ?GET({?MODULE,show_background})}],
     CkdTiled = [{crossmark, ?GET({?MODULE,tiled_texture})}],
     [Label0,Label1] = auv_texture_set_menu(label),
@@ -931,10 +935,10 @@ handle_event({current_state,geom_display_lists,GeomSt}, AuvSt) ->
 handle_event({update_state,St}, _) ->
     get_event(St);
 handle_event({do_tweak, Type, St =#st{sh=Sh,selmode=Mode}}, _) ->
-    case Type of 
+    case Type of
 	temp_selection ->
 	    handle_command(move,St#st{temp_sel={Mode,Sh}});
-	_ -> 
+	_ ->
 	    handle_command(move,St)
     end;
 handle_event({cancel_tweak,Ev}, St) ->
@@ -954,7 +958,7 @@ handle_event(Ev, St) ->
 	    FreeLmbMod = wings_msg:free_lmb_modifier(),
 %%	    io:format("Ev ~W~n",[Ev,3]),
 	    handle_event_0(Ev, St, FreeLmbMod);
-	Other -> 
+	Other ->
 	    Other
     end.
 
@@ -975,21 +979,21 @@ handle_event_0(Ev=#mousebutton{state=?SDL_PRESSED,
 			       x=X,y=Y,
 			       button=?SDL_BUTTON_LEFT,
 			       mod=Mod},
-	       #st{sel=Sel}=St0, FreeLmbMod) 
+	       #st{sel=Sel}=St0, FreeLmbMod)
   when (Mod band 16#0FFF) == 0 -> %% No modifiers
     case Sel of
 	[] ->
 	    case wings_pick:do_pick(X, Y, St0) of
-		{add,_,St} -> 
+		{add,_,St} ->
 		    start_tweak(temp_selection, Ev, St);
-		_ -> 
+		_ ->
 		    handle_event_1(Ev, St0, FreeLmbMod)
 	    end;
 	_ ->
 	    case wings_pick:do_pick(X,Y,St0) of
 		{delete,_,_} ->
 		    start_tweak(selection, Ev, St0);
-		_ -> 
+		_ ->
 		    handle_event_1(Ev, St0, FreeLmbMod)
 	    end
     end;
@@ -1016,9 +1020,9 @@ handle_event_3(#mousebutton{button=?SDL_BUTTON_RIGHT}=Ev,
     case wings_menu:is_popup_event(Ev) of
 	no -> keep;
 	{yes,X,Y,_} ->
-	    Mode = case Sel of 
-		       [] -> undefined; 
-		       _ -> Mode0 
+	    Mode = case Sel of
+		       [] -> undefined;
+		       _ -> Mode0
 		   end,
 	    command_menu(Mode, X, Y)
     end;
@@ -1042,7 +1046,7 @@ handle_event_3({action,{auv,{draw_options,Opt}}}, #st{bb=Uvs}=St) ->
 	_ ->
 	    TexName = case get_texture(MatName0, St) of
 			  false -> atom_to_list(MatName0);
-			  Old  -> 
+			  Old  ->
 			      OldE3d = wings_image:info(Old),
 			      case OldE3d#e3d_image.name of
 				  "auvBG" -> atom_to_list(MatName0);
@@ -1217,7 +1221,7 @@ get_tweak_event(T) ->
     {replace,fun(Ev) -> tweak_event(Ev, T) end}.
 tweak_event(#mousemotion{x=X,y=Y}, #tweak{pos={Sx,Sy},type=Type,st=St}) ->
     case (abs(X-Sx) > 2) orelse (abs(Y-Sy) > 2) of
-	true -> 
+	true ->
 	    if Type == temp_selection ->
 		    wings_wm:later(clear_selection);
 	       true -> ignore
@@ -1274,10 +1278,10 @@ handle_command_1({scale,Dir}, St0) %% Maximize chart
     St1 = wpa:sel_map(fun(_, We) -> stretch(Dir,We) end, St0),
     St = update_selected_uvcoords(St1),
     get_event(St);
-handle_command_1({scale,normalize}, St0) -> %% Normalize chart sizes    
+handle_command_1({scale,normalize}, St0) -> %% Normalize chart sizes
     #st{shapes=Sh0, bb=#uvstate{id=Id,st=#st{shapes=Orig}}} = St0,
-    OWe = gb_trees:get(Id, Orig), 
-    {TA2D,TA3D,List} = wings_sel:fold(fun(_,We,Areas) -> 
+    OWe = gb_trees:get(Id, Orig),
+    {TA2D,TA3D,List} = wings_sel:fold(fun(_,We,Areas) ->
 					      calc_areas(We,OWe,Areas)
 				      end, {0.0,0.0,[]}, St0),
     TScale = TA2D/TA3D,
@@ -1327,7 +1331,7 @@ handle_command_1({rotate, {free, {'ASK', Ask}}}, St) ->
 		       end);
 handle_command_1({rotate, {free,{z,Point,Magnet}}}, St) when element(1, Magnet) == magnet ->
     wings_rotate:setup({free,Point,Magnet}, St); % For repeat drag
-handle_command_1({rotate,Dir}, St0) 
+handle_command_1({rotate,Dir}, St0)
   when Dir == align_y; Dir == align_x; Dir == align_xy ->
     St1 = align_chart(Dir, St0),
     St = update_selected_uvcoords(St1),
@@ -1391,7 +1395,7 @@ handle_command_1(stitch, St0 = #st{selmode=edge}) ->
 			      Vis = gb_sets:from_list(wings_we:visible(We)),
 			      [auv_segment:map_edge(E,Emap)
 			       || E<-gb_sets:to_list(Es),
-				  begin 
+				  begin
 				      #edge{lf=LF,rf=RF}=array:get(E, Etab),
 				      border(gb_sets:is_member(LF,Vis),
 					       gb_sets:is_member(RF,Vis))
@@ -1407,9 +1411,9 @@ handle_command_1(cut_edges, St0 = #st{selmode=edge,bb=#uvstate{id=Id,st=Geom}}) 
 			      Vis = gb_sets:from_list(wings_we:visible(We)),
 			      A ++ [auv_segment:map_edge(E,Emap)
 				    || E <-gb_sets:to_list(Es),
-				       begin 
+				       begin
 					   #edge{lf=LF,rf=RF} = array:get(E,Etab),
-					   gb_sets:is_member(LF,Vis) and 
+					   gb_sets:is_member(LF,Vis) and
 					       gb_sets:is_member(RF,Vis)
 				       end]
 		      end, [], St0),
@@ -1482,7 +1486,7 @@ repeat(_Type, #st{sel=Sel,repeatable=Rep}) when Sel == []; Rep == ignore ->
 repeat(Type, St=#st{selmode=Mode, repeatable=Cmd}) ->
 %%     io:format("Repeat ~p ~n", [{St#st.repeatable,St#st.ask_args,St#st.drag_args}]),
     case repeatable(Cmd,Mode) of
-	false -> 
+	false ->
 %% 	    io:format("Not repeatable ~p ~p ~p~n",[Type,Cmd,Mode]),
 	    keep;
 	true ->
@@ -1503,7 +1507,7 @@ repeat2(Cmd,St,DragArgs) ->
     case handle_command_1(Cmd,St) of
 	{drag,Drag} ->
 	  wings_wm:set_prop(show_info_text, true),
-	  wings_drag:do_drag(Drag, DragArgs); 
+	  wings_drag:do_drag(Drag, DragArgs);
 	Other -> Other
     end.
 
@@ -1518,11 +1522,11 @@ repeatable({remap, proj_lsqcm}, Mode) -> Mode == face;
 repeatable({remap, proj_slim}, Mode) -> Mode == face;
 repeatable({remap,_},body) -> true;
 repeatable({remap,_},Mode) -> Mode == vertex;
-repeatable({scale, Dir}, Mode) 
-  when ((Dir == max_uniform) or (Dir == max_x) or (Dir == max_y) or 
+repeatable({scale, Dir}, Mode)
+  when ((Dir == max_uniform) or (Dir == max_x) or (Dir == max_y) or
 	(Dir == normalize)) and (Mode /= body) -> false;
-repeatable({rotate, Dir}, Mode) 
-  when ((Dir == align_y) or (Dir == align_x) or (Dir == align_xy)) 
+repeatable({rotate, Dir}, Mode)
+  when ((Dir == align_y) or (Dir == align_x) or (Dir == align_xy))
        and ((Mode == body) or (Mode == face)) -> false;
 repeatable({move_to,_},Mode) -> Mode == body;
 repeatable({flip,_},Mode) -> Mode == body;
@@ -1530,7 +1534,7 @@ repeatable(slide, Mode) -> Mode == edge;
 repeatable({equal,_}, Mode) -> Mode == edge;
 repeatable(tighten, Mode) ->
     (Mode == vertex) orelse (Mode == body);
-repeatable({tighten,_}, Mode) -> 
+repeatable({tighten,_}, Mode) ->
     (Mode == vertex) orelse (Mode == body);
 repeatable(delete, Mode) -> Mode == body;
 repeatable(hide, Mode) -> Mode == body;
@@ -1569,7 +1573,7 @@ add_faces(NewFs,St0=#st{bb=ASt=#uvstate{id=Id,mode=Mode,st=GeomSt=#st{shapes=Shs
 	{NewFs,Fs0} ->
 	    Fs = gb_sets:union(NewFs,Fs0),
 	    case gb_sets:intersection(NewFs,Fs0) of
-		NewFs -> 
+		NewFs ->
 		    St0#st{bb=ASt#uvstate{mode=Fs}};
 		_ ->  %% Some new faces should be shown, force a chart rebuild
 		    We = gb_trees:get(Id,Shs0),
@@ -1579,7 +1583,7 @@ add_faces(NewFs,St0=#st{bb=ASt=#uvstate{id=Id,mode=Mode,st=GeomSt=#st{shapes=Shs
 	    end
     end.
 
-do_drag({drag,Drag}) -> 
+do_drag({drag,Drag}) ->
     wings:mode_restriction([vertex,edge,face,body]),
     wings_wm:set_prop(show_info_text, true),
     wings_drag:do_drag(Drag,none);
@@ -1741,7 +1745,7 @@ make_equal(Op,[Link0|R],We = #we{vp=Vtab}) ->
 			       Pos = setelement(E,Pos2,element(E,Pos1) + Dist),
 			       array:set(Ve,Pos,Vt)
 		       end,
-		       Vtab,Link),	    
+		       Vtab,Link),
 	    make_equal(Op,R,We#we{vp=Vt})
     end;
 make_equal(_,[],We) -> We.
@@ -1833,7 +1837,7 @@ make_proportional([Link0|R],We = #we{vp=Vtab1}, [LinkObj0|RObj], WeObj = #we{vp=
                     MToDst = e3d_mat:translate(Mid0),
                     M0 = e3d_mat:mul(MToDst,MToOri)
             end,
-            
+
             Vtab =
                 lists:foldr(fun(V, Acc) ->
                                 Pos = e3d_mat:mul_point(M0,array:get(V,Acc)),
@@ -1857,7 +1861,7 @@ validate_dir([E0|Es], Acc) ->
 
 calc_areas(We,OWe,{TA2D,TA3D,L}) ->
     Fs = wings_we:visible(We),
-    {A2D,A3D} = 
+    {A2D,A3D} =
 	lists:foldl(fun(Face,{A2D,A3D}) ->
 			    %% 2D
 			    Vs2 = wpa:face_vertices(Face, We),
@@ -1911,7 +1915,7 @@ stitch(WEs,St0) ->
     stitch_charts(ChartStitches,gb_sets:empty(),St1).
 
 stitch_edges([{_E,{Id,_,{Vs1,Ve1}},{Id,_,{Vs2,Ve2}}}|Rest],
-	     St0=#st{shapes=Sh0},Acc) -> 
+	     St0=#st{shapes=Sh0},Acc) ->
     %% Same We do the internal stiches
     We = #we{vp=Vpos0} = gb_trees:get(Id,Sh0),
     Same = [{Vs1,Vs2},{Ve1,Ve2}],
@@ -1952,7 +1956,7 @@ stitch_charts([ChartStitches|Other],Moved,St0=#st{shapes=Sh0}) ->
     St = foldl(fun stitch_charts2/2, St0#st{shapes=Sh}, ChartStitches),
     stitch_charts(Other, gb_sets:add(Id2,gb_sets:add(Id1,Moved)), St).
 
-stitch_charts2({_E,{Id1,E1,{Vs1,Ve1}},{Id2,E2,{Vs2,Ve2}}}, 
+stitch_charts2({_E,{Id1,E1,{Vs1,Ve1}},{Id2,E2,{Vs2,Ve2}}},
 	       St0=#st{shapes=Sh0,sel=Sel}) ->
     We1 = #we{vp=Vpos1} = gb_trees:get(Id1,Sh0),
     We2 = #we{vp=Vpos2} = gb_trees:get(Id2,Sh0),
@@ -1999,7 +2003,7 @@ find_longest_dist([This|Rest],Dist,Bs1,Be1,Bs2,Be2,Vpos) ->
 	    find_longest_dist(Rest,Dist3,Ve1,Be1,Ve2,Be2,Vpos);
        (Dist4>Dist) ->
 	    find_longest_dist(Rest,Dist4,Ve1,Bs1,Ve2,Bs2,Vpos);
-       true -> 
+       true ->
 	    find_longest_dist(Rest,Dist,Bs1,Be1,Bs2,Be2,Vpos)
     end.
 
@@ -2035,15 +2039,15 @@ displace_cuts(SelEs,St=#st{shapes=Sh,bb=#uvstate{id=WeId,st=#st{shapes=GSh}}})->
     %% Remapped = [[{GeomEdge, [{AuvWeId,AuvEdge1},{AuvWeId2,AuvEdge2}]},..]
     Displaced = foldl(fun displace_cuts1/2, Sh, Remapped),
     %% Update selection to all new edges
-    Sel0 = lists:append([[{Id1,E1},{Id2,E2}] || 
-			    {_,{Id1,E1,_},{Id2,E2,_}} 
+    Sel0 = lists:append([[{Id1,E1},{Id2,E2}] ||
+			    {_,{Id1,E1,_},{Id2,E2,_}}
 				<- lists:append(Remapped)]),
     Sel1 = sofs:to_external(sofs:relation_to_family(
 			      sofs:relation(Sel0))),
     Sel = [{Id,gb_sets:from_ordset(Eds)} || {Id,Eds} <- Sel1],
     St#st{sel=Sel,shapes=Displaced}.
 
-displace_cuts1(Eds, Sh0) -> 
+displace_cuts1(Eds, Sh0) ->
     Sh1 = displace_edges(Eds,Sh0),
     displace_charts(Eds,gb_sets:empty(),Sh1).
 
@@ -2066,7 +2070,7 @@ displace_edges([{_,{Id,Edge1,{Vs1,Ve1}},{Id,_,{Vs2,Ve2}}}|Eds], Sh) ->
 				 Vpos1 = array:set(V1,Pos1,VpIn),
 				 Pos2 = e3d_vec:add(Move2,array:get(V2,Vpos0)),
 				 array:set(V2,Pos2,Vpos1)
-			 end, Vpos0, Vs),	    
+			 end, Vpos0, Vs),
 	    displace_edges(Eds,gb_trees:update(Id, We#we{vp=Vpos},Sh))
     end;
 displace_edges([_Skip|Eds], Sh) ->
@@ -2088,7 +2092,7 @@ displace_charts([{_,{Id1,_,_},{Id2,_,_}}|Eds], Moved, Sh) ->
 		       {+0.0,+0.0,_} -> {0.0,?EPSILON,0.0};
 		       Disp -> Disp
 		   end,
-	    Vpos= [{V,e3d_vec:add(Pos,Move)} || 
+	    Vpos= [{V,e3d_vec:add(Pos,Move)} ||
 		      {V,Pos} <- array:sparse_to_orddict(Vpos0)],
 	    We = We0#we{vp=array:from_orddict(Vpos)},
 	    displace_charts(Eds,gb_sets:add(Id1,Moved),
@@ -2136,7 +2140,7 @@ map_edges(WingsEs,#st{shapes=Sh}) ->
 	      [R|Acc];
 	 (_,Acc) -> Acc
       end, [], Mapped).
-	      
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 drag_filter({image,_,_}) ->
     {yes,?__(1,"Drop: Change the texture image")};
@@ -2244,11 +2248,11 @@ rebuild_charts(We, St = #st{bb=UVS=#uvstate{st=Old,mode=Mode}}, ExtraCuts) ->
 
 update_mode(Faces0, #we{fs=Ftab}) ->
     Fs = gb_sets:from_list(Faces0),
-    case gb_sets:size(Fs) == gb_trees:size(Ftab) of 
+    case gb_sets:size(Fs) == gb_trees:size(Ftab) of
 	true -> object;
 	false -> Fs
     end.
-	    
+
 update_uv_tab(Cs, FvUvMap) ->
     update_uv_tab_1(Cs, FvUvMap, []).
 
@@ -2391,7 +2395,7 @@ face_sel_to_body([], _, Sel) -> Sel.
 body_sel_to_body([{K,_}|Cs], Sel) ->
     body_sel_to_body(Cs, [{K,gb_sets:singleton(0)}|Sel]);
 body_sel_to_body([], Sel) -> Sel.
-    
+
 %% update_geom_selection(AuvSt)
 %%  Given the selection in the AutoUV window, update the selection
 %%  in the geometry window.
@@ -2448,11 +2452,11 @@ align_chart(Dir, St = #st{selmode=Mode}) ->
     wings_sel:map(
       fun(Sel, We = #we{vp=Vtab,es=Etab}) ->
 	      case gb_sets:to_list(Sel) of
-		  [V1,V2] when Mode == vertex -> 
+		  [V1,V2] when Mode == vertex ->
 		      align_chart(Dir,array:get(V1,Vtab),
 				  array:get(V2,Vtab),
 				  We);
-		  [E] when Mode == edge -> 
+		  [E] when Mode == edge ->
 		      #edge{vs=V1,ve=V2} = array:get(E, Etab),
 		      align_chart(Dir,array:get(V1,Vtab),
 				  array:get(V2,Vtab),
@@ -2651,7 +2655,7 @@ align(Dir,[{Xa,Ya,_},{Xb,Yb,_}],We) ->
             center_x -> e3d_vec:sub({(Xa+Xb)/2.0,CCY,CCZ}, ChartCenter);
             center_y -> e3d_vec:sub({CCX,(Ya+Yb)/2.0,CCZ}, ChartCenter);
             bottom ->   {0.0,(Ya-Y1),0.0};
-            top ->      {0.0,(Yb-Y2),0.0};   
+            top ->      {0.0,(Yb-Y2),0.0};
             left ->     {(Xa-X1),0.0,0.0};
             right ->    {(Xb-X2),0.0,0.0}
         end,
@@ -2691,12 +2695,12 @@ stretch(Dir,We) ->
           end,
     T = e3d_mat:mul(e3d_mat:translate(Pos), T1),
     wings_we:transform_vs(T, We).
-    
+
 remap(Method,#st{sel=Sel,selmode=vertex}=St0) ->
     %% Check correct pinning.
     Ch = fun(Vs, #we{vp=Vtab}, _) ->
 		 case gb_sets:size(Vs) of
-		     N when N /= 2, Method == sphere -> 
+		     N when N /= 2, Method == sphere ->
 			 E = ?__(1,"Select two vertices, the North and South pole"),
 			 wpa:error_msg(E);
 		     N when N < 2 ->
@@ -2705,7 +2709,7 @@ remap(Method,#st{sel=Sel,selmode=vertex}=St0) ->
 		     N ->
 			 case N < wings_util:array_entries(Vtab) of
 			     true -> ok;
-			     _ -> 
+			     _ ->
 				 E = ?__(5,"All vertices can not be pinned"),
 				 wpa:error_msg(E)
 			 end
@@ -2774,9 +2778,9 @@ remap(Type, Pinned, _, We0, St) ->
     %% Get 3d positions (even for mapped vs).
     Vs3d = orig_pos(We0, St),
     case auv_mapping:map_chart(Type, We0#we{vp=Vs3d}, Pinned) of
-	{error,Msg} -> 
+	{error,Msg} ->
 	    wpa:error_msg(Msg);
-	Vs0 -> 
+	Vs0 ->
 	    update_and_scale_chart(Vs0,We0)
     end.
 
@@ -2786,11 +2790,11 @@ orig_pos(We = #we{name=#ch{vmap=Vmap}},St) ->
     #we{vp=Vs3d0} = gb_trees:get(Id, Sh),
     Vs3d = map(fun({V0,_Pos}) ->
 		       case gb_trees:lookup(V0, Vmap) of
-			   none -> 
+			   none ->
 			       {V0, array:get(V0, Vs3d0)};
 			   {value,V} ->
 			       {V0, array:get(V, Vs3d0)}
-		       end 
+		       end
 	       end, array:sparse_to_orddict(We#we.vp)),
     array:from_orddict(Vs3d).
 
@@ -2946,7 +2950,7 @@ cleanup_before_exit() ->
     wings:unregister_postdraw_hook(wings_wm:this(), ?MODULE),
     wings_dl:delete_dlists().
 
-%% Generate a checkerboard image of 4x4 squares 
+%% Generate a checkerboard image of 4x4 squares
 %% with given side length in pixels.
 
 compressed_bg() ->
@@ -2986,10 +2990,10 @@ bg_image() ->
     Width = Height = 256,
     #e3d_image{width=Width,height=Height,image=Pixels,
 	       order=lower_left,name="auvBG"}.
-    
+
 repeat_image(<<Row:(32*3)/binary,Rest/binary>>, Acc) ->
     repeat_image(Rest,[Row,Row,Row,Row,Row,Row,Row,Row|Acc]);
-repeat_image(<<>>,Acc) -> 
+repeat_image(<<>>,Acc) ->
     Im = lists:reverse(Acc),
     list_to_binary([Im,Im,Im,Im,Im,Im,Im,Im]).
 

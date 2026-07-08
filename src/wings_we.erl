@@ -1264,10 +1264,10 @@ centroid( #we{}=_We ) ->
     end,
     Fs = gb_trees:keys(Ftab),
     {{X,Y,Z}, VolumeT }  = lists:foldl(MyAcc, {{0.0,0.0,0.0},0.0} , Fs),
-    case catch {X/VolumeT,Y/VolumeT,Z/VolumeT} of 
-    	{_,_,_}=Centroid ->
-    		Centroid;
-    	_ ->  %% caught a bad arith error more than likely zero volume, apply fallback scheme
+    try
+    	{X/VolumeT,Y/VolumeT,Z/VolumeT}
+    catch
+    	_:_ ->  %% caught a bad arith error more than likely zero volume, apply fallback scheme
     		#we{vp=VPos}=_We,
     		TempDict = array:sparse_to_orddict(VPos),
     		e3d_bv:center(e3d_bv:box([Point || {_,Point} <- TempDict]))

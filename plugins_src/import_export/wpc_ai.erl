@@ -66,13 +66,16 @@ command(_, _) ->
     next.
 
 make_ai(Name, Nsubsteps) ->
-    case catch tryimport(Name, Nsubsteps) of
+    try tryimport(Name, Nsubsteps) of
 	{ok, E3dFile} ->
 	    wpa:pref_set(wpc_ai, bisections, Nsubsteps),
 	    {ok, E3dFile};
 	{error,Reason} ->
 	    {error, ?__(1,"AI import failed")++": " ++ Reason};
 	_ ->
+	    {error, ?__(2,"AI import internal error")}
+    catch
+	_:_ ->
 	    {error, ?__(2,"AI import internal error")}
     end.
 

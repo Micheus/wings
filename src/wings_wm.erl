@@ -829,9 +829,12 @@ dispatch_event({'EXIT', _Pid, normal}) ->
     true;
 dispatch_event({'EXIT', Pid, _Reason0}) ->
     Found = [Win || #win{name=Win, obj=Obj} <- gb_trees:values(get(wm_windows)),
-		    (catch wx_object:get_pid(Obj)) =:= Pid],
+		    (try wx_object:get_pid(Obj)
+		     catch _:_ -> undefined end) =:= Pid],
     case Found of
-        [WName] -> (catch delete(WName));
+        [WName] ->
+            try delete(WName)
+            catch _:_ -> ok end;
         _ -> ignore
     end,
     true;

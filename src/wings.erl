@@ -111,14 +111,16 @@ init_part2(Args, Frame, GeomGL, GeomPs) ->
     make_geom_window(GeomGL, GeomPs, St),
     is_fast_start(Args) orelse wings_file:init_autosave(),
     is_fast_start(Args) orelse restore_windows(St),
-    case catch wings_wm:enter_event_loop() of
-	{'EXIT',shutdown} ->
-	    wings_io:quit(),
-            exit(shutdown);
-        {'EXIT',Reason} ->
-	    io:format("~P\n", [Reason,20]),
-	    wings_io:quit(),
-	    exit(Reason)
+    try
+        wings_wm:enter_event_loop()
+    catch
+        {'EXIT',shutdown} ->
+            wings_io:quit(),
+                exit(shutdown);
+            {'EXIT',Reason} ->
+            io:format("~P\n", [Reason,20]),
+            wings_io:quit(),
+            exit(Reason)
     end.
 
 make_geom_window(GeomGL, GeomPs, St) ->
@@ -352,21 +354,23 @@ handle_event({crash_in_other_window,LogName}, St) ->
     crash_dialog(LogName),
     main_loop(St);
 handle_event({open_file,Name}, St0) ->
-    case catch ?SLOW(wings_ff_wings:import(Name, St0)) of
-	#st{}=St1 ->
-	    St2 = wings_obj:recreate_folder_system(St1),
-	    USFile = wings_file:autosave_filename(wings_file:unsaved_filename()),
-	    St = case USFile of
-		     Name ->
-			 St2#st{saved=auto,file=undefined};
-		     _ ->
-			 wings_pref:set_value(current_directory, filename:dirname(Name)),
-			 St2#st{saved=true,file=Name}
-		 end,
-	    update_menus(St),
-	    main_loop(wings_u:caption(St));
-	{error,_} ->
-	    main_loop(St0)
+    try
+        ?SLOW(wings_ff_wings:import(Name, St0))
+    catch
+        #st{}=St1 ->
+            St2 = wings_obj:recreate_folder_system(St1),
+            USFile = wings_file:autosave_filename(wings_file:unsaved_filename()),
+            St = case USFile of
+                 Name ->
+                 St2#st{saved=auto,file=undefined};
+                 _ ->
+                 wings_pref:set_value(current_directory, filename:dirname(Name)),
+                 St2#st{saved=true,file=Name}
+             end,
+            update_menus(St),
+            main_loop(wings_u:caption(St));
+        {error,_} ->
+            main_loop(St0)
     end;
 handle_event(Ev, St) ->
     case wings_camera:event(Ev, St) of
